@@ -15,7 +15,10 @@
 
 import torch
 
-from ..cuda._wrapper import adam
+if torch.cuda.is_available():
+    from ..cuda._wrapper import adam
+else:
+    from ..mps._wrapper import adam
 
 
 class SelectiveAdam(torch.optim.Adam):

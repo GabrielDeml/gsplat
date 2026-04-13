@@ -40,7 +40,7 @@ from torch import Tensor
 from gsplat._helper import assert_shape
 from ._constants import MIN_COMPENSATION
 
-from ._wrapper import (
+from gsplat._types import (
     CameraModel,
     RollingShutterType,
     UnscentedTransformParameters,

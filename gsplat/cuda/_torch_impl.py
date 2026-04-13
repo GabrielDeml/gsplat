@@ -35,7 +35,7 @@ from ._math import (
     _quat_scale_to_matrix,
     _quat_scale_to_covar_preci,
 )
-from ._wrapper import CameraModel, RollingShutterType
+from gsplat._types import CameraModel, RollingShutterType
 from ._constants import MAX_ALPHA, MIN_COMPENSATION
 
 

@@ -28,12 +28,28 @@ import torch
 import torch.distributed
 
 
+def _gpu_available():
+    """Check if any GPU backend (CUDA or MPS) is available."""
+    return torch.cuda.is_available() or (
+        hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
+    )
+
+
+def _get_device():
+    """Return the best available device."""
+    if torch.cuda.is_available():
+        return torch.device("cuda:0")
+    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
+
+
 @pytest.fixture(autouse=True)
 def setup_test_environment():
     """
     Autouse fixture that runs before every test to ensure:
     1. Deterministic random seed
-    2. CUDA cache is cleared
+    2. GPU cache is cleared
     3. Garbage collection is performed
 
     This fixture automatically applies to all tests in this directory

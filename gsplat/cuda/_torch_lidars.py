@@ -35,7 +35,7 @@ from ._lidar import (
     RowOffsetStructuredSpinningLidarModelParameters,
 )
 
-from ._wrapper import RowOffsetStructuredSpinningLidarModelParametersExt
+from ._lidar import RowOffsetStructuredSpinningLidarModelParametersExt
 
 from ._math import (
     _safe_normalize,

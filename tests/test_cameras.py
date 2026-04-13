@@ -30,21 +30,20 @@ from itertools import product, chain
 from types import SimpleNamespace
 from dataclasses import dataclass
 
-if not torch.cuda.is_available():
-    pytest.skip("CUDA required for camera model tests", allow_module_level=True)
+_gpu_available = torch.cuda.is_available() or (hasattr(torch.backends, "mps") and torch.backends.mps.is_available())
 
-from gsplat.cuda._backend import _C
+if torch.cuda.is_available():
+    from gsplat.cuda._wrapper import has_camera_wrappers
+else:
+    from gsplat.mps._wrapper import has_camera_wrappers
 
-if _C is None:
-    pytest.skip("gsplat CUDA extension not available", allow_module_level=True)
+_camera_wrappers_available = _gpu_available and has_camera_wrappers()
 
-from gsplat.cuda._wrapper import has_camera_wrappers
-
-if not has_camera_wrappers():
-    pytest.skip(
-        "Camera wrappers not built (need BUILD_CAMERA_WRAPPERS=1)",
-        allow_module_level=True,
-    )
+# Decorator for tests that require the native camera wrapper extension
+_requires_camera_wrappers = pytest.mark.skipif(
+    not _camera_wrappers_available,
+    reason="Camera wrappers not available (need native extension with BUILD_CAMERA_WRAPPERS=1)",
+)
 
 from gsplat._helper import expand_named_params
 from gsplat.cuda._torch_cameras import (  # PyTorch reference
@@ -57,24 +56,33 @@ from gsplat.cuda._torch_cameras import (  # PyTorch reference
 from gsplat.cuda._torch_lidars import (  # PyTorch reference
     _RowOffsetStructuredSpinningLidarModel,
 )
-from gsplat._helper import assert_mismatch_ratio, assert_close
-from gsplat.cuda._wrapper import (
-    RollingShutterType,
-    FThetaPolynomialType,
-    FThetaCameraDistortionParameters,
-    create_camera_model,
-    SpinningDirection,
+from gsplat.cuda._math import (
+    _quat_multiply,
+    _safe_normalize,
+    compute_inverse_polynomial,
 )
+if torch.cuda.is_available():
+    from gsplat.cuda._wrapper import (
+        RollingShutterType,
+        FThetaPolynomialType,
+        FThetaCameraDistortionParameters,
+        create_camera_model,
+        SpinningDirection,
+    )
+else:
+    from gsplat.mps._wrapper import (
+        RollingShutterType,
+        FThetaPolynomialType,
+        FThetaCameraDistortionParameters,
+        create_camera_model,
+        SpinningDirection,
+    )
+from gsplat._helper import assert_mismatch_ratio, assert_close
 from gsplat import (
     compute_lidar_angles_to_columns_map,
     compute_lidar_tiling,
     RowOffsetStructuredSpinningLidarModelParameters,
     RowOffsetStructuredSpinningLidarModelParametersExt,
-)
-from gsplat.cuda._math import (
-    _quat_multiply,
-    _safe_normalize,
-    compute_inverse_polynomial,
 )
 
 SEED = 42
@@ -716,7 +724,8 @@ def camera(request, test_camera, ref_camera):
         raise ValueError(f"Unknown camera type: {request.param}")
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
+@_requires_camera_wrappers
+@pytest.mark.skipif(not _gpu_available, reason="GPU required")
 @pytest.mark.parametrize(
     "camera_model,batch_dims",
     [
@@ -860,7 +869,8 @@ class TestCameraModels:
         assert_close(test_times, ref_times, atol=atol, rtol=rtol)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
+@_requires_camera_wrappers
+@pytest.mark.skipif(not _gpu_available, reason="GPU required")
 @pytest.mark.parametrize("camera_model", ["pinhole"])
 @pytest.mark.parametrize("batch_dims", [(), (2,), (2, 3)])
 @pytest.mark.parametrize("image_dims", [(127, 257)])

@@ -22,10 +22,13 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-device = torch.device("cuda:0")
+device = torch.device("cuda:0") if torch.cuda.is_available() else (
+    torch.device("mps") if hasattr(torch.backends, "mps") and torch.backends.mps.is_available() else torch.device("cpu")
+)
+_gpu_available = torch.cuda.is_available() or (hasattr(torch.backends, "mps") and torch.backends.mps.is_available())
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+@pytest.mark.skipif(not _gpu_available, reason="No GPU device")
 def test_quat_normalize_rotation():
     """Test _quat_normalize_rotation handles sign and normalization correctly."""
     from gsplat.cuda._math import _quat_normalize_rotation
@@ -90,7 +93,7 @@ def test_quat_normalize_rotation():
     )
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+@pytest.mark.skipif(not _gpu_available, reason="No GPU device")
 def test_quat_to_rotmat():
     """Test _quat_to_rotmat converts quaternions correctly."""
     from gsplat.cuda._math import _quat_to_rotmat
@@ -135,7 +138,7 @@ def test_quat_to_rotmat():
     )
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+@pytest.mark.skipif(not _gpu_available, reason="No GPU device")
 def test_rotmat_to_quat():
     """Test _rotmat_to_quat converts rotation matrices correctly."""
     from gsplat.cuda._math import _rotmat_to_quat
@@ -200,7 +203,7 @@ def test_rotmat_to_quat():
     )
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+@pytest.mark.skipif(not _gpu_available, reason="No GPU device")
 def test_rotmat_to_quat_roundtrip():
     """Test _rotmat_to_quat and _quat_to_rotmat are inverses."""
     from gsplat.cuda._math import (
@@ -224,7 +227,7 @@ def test_rotmat_to_quat_roundtrip():
     )
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+@pytest.mark.skipif(not _gpu_available, reason="No GPU device")
 def test_quat_inverse():
     """Test _quat_inverse produces correct inverse."""
     from gsplat.cuda._math import _quat_inverse, _quat_rotate
@@ -265,7 +268,7 @@ def test_quat_inverse():
     )
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+@pytest.mark.skipif(not _gpu_available, reason="No GPU device")
 def test_quat_rotate():
     """Test _quat_rotate rotates vectors correctly."""
     from gsplat.cuda._math import _quat_rotate
@@ -334,7 +337,7 @@ def test_quat_rotate():
     )
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+@pytest.mark.skipif(not _gpu_available, reason="No GPU device")
 def test_quat_slerp():
     """Test _quat_slerp interpolation."""
     from gsplat.cuda._math import _quat_slerp, _quat_to_rotmat, _quat_normalize_rotation
@@ -429,7 +432,7 @@ def test_quat_slerp():
     )
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+@pytest.mark.skipif(not _gpu_available, reason="No GPU device")
 def test_quat_multiply():
     """Test _quat_multiply function for various quaternion multiplication scenarios."""
     from gsplat.cuda._math import _quat_multiply
@@ -497,7 +500,7 @@ def test_quat_multiply():
     )
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+@pytest.mark.skipif(not _gpu_available, reason="No GPU device")
 def test_safe_normalize():
     """Test _safe_normalize matches expected behavior."""
     from gsplat.cuda._math import _safe_normalize

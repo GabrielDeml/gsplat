@@ -43,12 +43,12 @@ from ._math import (
     _quat_slerp,
     _safe_normalize,
 )
-from ._wrapper import (
+from gsplat._types import (
     RollingShutterType,
     FThetaPolynomialType,
     FThetaCameraDistortionParameters,
-    SpinningDirection,
 )
+from ._lidar import SpinningDirection
 
 
 def _project_to_image(

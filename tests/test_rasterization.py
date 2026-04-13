@@ -38,11 +38,14 @@ from gsplat.rendering import (
 )
 from gsplat.cuda._constants import ALPHA_THRESHOLD
 
-device = torch.device("cuda:0")
+device = torch.device("cuda:0") if torch.cuda.is_available() else (
+    torch.device("mps") if hasattr(torch.backends, "mps") and torch.backends.mps.is_available() else torch.device("cpu")
+)
+_gpu_available = torch.cuda.is_available() or (hasattr(torch.backends, "mps") and torch.backends.mps.is_available())
 
 
 # Only 3dgs is being tested as per default args with_ut==False and with_eval3d==False
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+@pytest.mark.skipif(not _gpu_available, reason="No GPU device")
 @pytest.mark.skipif(not gsplat.has_3dgs(), reason="3DGS support isn't built in")
 @pytest.mark.parametrize(
     "per_view_color,sh_degree,render_mode,packed,batch_dims,with_eval3d,with_ut,camera_model,extra_signals_info,distributed",
@@ -151,6 +154,8 @@ def test_rasterization(
 ):
     if distributed and not torch.distributed.is_initialized():
         pytest.skip("distributed process group not initialized")
+    if distributed and device.type == "mps":
+        pytest.skip("distributed not supported on MPS")
     from gsplat.rendering import _rasterization, rasterization
 
     torch.manual_seed(42)
