@@ -30,20 +30,8 @@ print('Import OK')
 "
 
 echo ""
-echo "=== Math tests ==="
-python -m pytest tests/test_math.py -v --tb=short 2>&1 || true
-
-echo ""
-echo "=== Integration tests (non-distributed, non-lidar) ==="
-python -m pytest tests/test_rasterization.py -v --tb=short -k "not distributed and not lidar" --maxfail=5 2>&1 || true
-
-echo ""
-echo "=== Basic tests ==="
-python -m pytest tests/test_basic.py -v --tb=short --maxfail=5 2>&1 || true
-
-echo ""
-echo "=== 2DGS tests ==="
-python -m pytest tests/test_2dgs.py -v --tb=short --maxfail=5 2>&1 || true
+echo "=== Test suite (auto-discovered; excludes distributed and lidar) ==="
+python -m pytest tests/ -v --tb=short -k "not distributed and not lidar" --maxfail=5 2>&1 || true
 
 echo ""
 echo "Done."

@@ -88,8 +88,8 @@ These unblock everything else. Do these first, in order.
           pure-PyTorch path on a fixed 100k-Gaussian scene
     - [x] Print a table; write results into `docs/DEV.md` on each tier
           completion
-- [ ] **T0.7 — CI coverage**
-    - [ ] Update `run_mps_tests.sh` so new tests are picked up automatically
+- [x] **T0.7 — CI coverage**
+    - [x] Update `run_mps_tests.sh` so new tests are picked up automatically
           (confirm the `pytest tests/` invocation globs new files)
 
 ---
