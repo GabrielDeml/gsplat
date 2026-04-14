@@ -62,12 +62,12 @@ These unblock everything else. Do these first, in order.
           skip markers (`torch.cuda.is_available()`,
           `torch.backends.mps.is_available()`)
     - [x] Document usage in a comment block at the top
-- [ ] **T0.2 — Forward parity helper**
-    - [ ] In `tests/test_mps_backend.py` add `assert_mps_matches_reference(
+- [x] **T0.2 — Forward parity helper**
+    - [x] In `tests/test_mps_backend.py` add `assert_mps_matches_reference(
           mps_out, ref_out, rtol, atol)` that wraps `torch.testing.assert_close`
           with per-tensor tolerances
-- [ ] **T0.3 — Backward parity helper**
-    - [ ] Add `assert_mps_grads_match_reference(inputs, mps_fn, ref_fn, ...)`
+- [x] **T0.3 — Backward parity helper**
+    - [x] Add `assert_mps_grads_match_reference(inputs, mps_fn, ref_fn, ...)`
           that runs `torch.autograd.grad` on both paths and compares
 - [ ] **T0.4 — Shared Metal utilities**
     - [ ] Create `gsplat/mps/csrc/common.metal` (will be concatenated by the

@@ -156,6 +156,138 @@ def assert_mps_matches_reference(
     )
 
 
+def _as_tensor_tuple(out) -> tuple:
+    if isinstance(out, torch.Tensor):
+        return (out,)
+    if isinstance(out, Sequence) and not isinstance(out, (str, bytes)):
+        return tuple(out)
+    raise TypeError(
+        "assert_mps_grads_match_reference expects callables to return a tensor "
+        f"or a sequence of tensors; got {type(out).__name__}"
+    )
+
+
+def _grad_input_indices(inputs: Sequence[torch.Tensor]) -> tuple:
+    return tuple(
+        i for i, t in enumerate(inputs)
+        if isinstance(t, torch.Tensor) and t.requires_grad
+    )
+
+
+def _build_grad_outputs(outputs: tuple, seed: int = 0) -> list:
+    generator = torch.Generator(device="cpu").manual_seed(seed)
+    vectors = []
+    for out in outputs:
+        cpu_vec = torch.randn(
+            out.shape, generator=generator, dtype=out.dtype, device="cpu"
+        )
+        vectors.append(cpu_vec.to(out.device))
+    return vectors
+
+
+def assert_mps_grads_match_reference(
+    mps_fn,
+    ref_fn,
+    mps_inputs,
+    ref_inputs=None,
+    *,
+    grad_outputs=None,
+    rtol=None,
+    atol=None,
+    names=None,
+    equal_nan: bool = False,
+    check_dtype: bool = True,
+    retain_graph: bool = False,
+    allow_unused: bool = False,
+) -> None:
+    """Backward parity assertion for MPS kernels vs a reference implementation.
+
+    Runs ``torch.autograd.grad`` on both ``mps_fn(*mps_inputs)`` and
+    ``ref_fn(*ref_inputs)`` and compares the resulting gradient tuples using
+    :func:`assert_mps_matches_reference`, so the ``rtol`` / ``atol`` / ``names``
+    conventions match the forward helper.
+
+    ``ref_inputs`` defaults to ``mps_inputs``; pass a parallel tuple when the
+    reference runs on a different device. ``grad_outputs``, when omitted, is
+    generated deterministically from a seed-0 CPU generator so the comparison
+    is reproducible across devices.
+    """
+
+    mps_inputs = tuple(mps_inputs)
+    ref_inputs = tuple(mps_inputs if ref_inputs is None else ref_inputs)
+
+    if len(mps_inputs) != len(ref_inputs):
+        raise TypeError(
+            "assert_mps_grads_match_reference: mps_inputs and ref_inputs "
+            f"have different lengths ({len(mps_inputs)} vs {len(ref_inputs)})"
+        )
+
+    mps_grad_idx = _grad_input_indices(mps_inputs)
+    ref_grad_idx = _grad_input_indices(ref_inputs)
+    if mps_grad_idx != ref_grad_idx:
+        raise TypeError(
+            "assert_mps_grads_match_reference: requires_grad pattern differs "
+            f"(mps={mps_grad_idx}, ref={ref_grad_idx})"
+        )
+    if not mps_grad_idx:
+        raise TypeError(
+            "assert_mps_grads_match_reference: no input has requires_grad=True"
+        )
+
+    mps_out = _as_tensor_tuple(mps_fn(*mps_inputs))
+    ref_out = _as_tensor_tuple(ref_fn(*ref_inputs))
+    if len(mps_out) != len(ref_out):
+        raise TypeError(
+            "assert_mps_grads_match_reference: output arity differs "
+            f"(mps={len(mps_out)}, ref={len(ref_out)})"
+        )
+
+    if grad_outputs is None:
+        mps_grad_outputs = _build_grad_outputs(mps_out)
+        ref_grad_outputs = _build_grad_outputs(ref_out)
+    else:
+        if len(grad_outputs) != len(mps_out):
+            raise TypeError(
+                "assert_mps_grads_match_reference: grad_outputs length "
+                f"{len(grad_outputs)} does not match output count {len(mps_out)}"
+            )
+        mps_grad_outputs = [g.to(o.device) for g, o in zip(grad_outputs, mps_out)]
+        ref_grad_outputs = [g.to(o.device) for g, o in zip(grad_outputs, ref_out)]
+
+    mps_grad_inputs = tuple(mps_inputs[i] for i in mps_grad_idx)
+    ref_grad_inputs = tuple(ref_inputs[i] for i in ref_grad_idx)
+
+    mps_grads = torch.autograd.grad(
+        outputs=mps_out,
+        inputs=mps_grad_inputs,
+        grad_outputs=mps_grad_outputs,
+        retain_graph=retain_graph,
+        allow_unused=allow_unused,
+    )
+    ref_grads = torch.autograd.grad(
+        outputs=ref_out,
+        inputs=ref_grad_inputs,
+        grad_outputs=ref_grad_outputs,
+        retain_graph=retain_graph,
+        allow_unused=allow_unused,
+    )
+
+    resolved_names = (
+        list(names) if names is not None
+        else [f"grad[{i}]" for i in mps_grad_idx]
+    )
+
+    assert_mps_matches_reference(
+        tuple(mps_grads),
+        tuple(ref_grads),
+        rtol=rtol,
+        atol=atol,
+        names=resolved_names,
+        equal_nan=equal_nan,
+        check_dtype=check_dtype,
+    )
+
+
 def test_load_metal_source_bundle_is_deterministic(tmp_path):
     nested = tmp_path / "nested"
     nested.mkdir()
@@ -329,3 +461,71 @@ def test_assert_mps_matches_reference_dict_per_key_tolerance():
 
     with pytest.raises(TypeError, match="dict keys differ"):
         assert_mps_matches_reference(good, {"means2d": good["means2d"]})
+
+
+def test_assert_mps_grads_match_reference_single_input_scalar_tolerance():
+    def good_fn(x):
+        return x * x
+
+    def bad_fn(x):
+        return x * x + x
+
+    x_mps = torch.tensor([1.0, 2.0, 3.0], requires_grad=True)
+    x_ref = torch.tensor([1.0, 2.0, 3.0], requires_grad=True)
+
+    assert_mps_grads_match_reference(
+        good_fn, good_fn, (x_mps,), (x_ref,), rtol=1e-6, atol=1e-6
+    )
+
+    x_mps2 = torch.tensor([1.0, 2.0, 3.0], requires_grad=True)
+    x_ref2 = torch.tensor([1.0, 2.0, 3.0], requires_grad=True)
+    with pytest.raises(AssertionError, match=r"\[grad\[0\]\]"):
+        assert_mps_grads_match_reference(
+            good_fn, bad_fn, (x_mps2,), (x_ref2,), rtol=1e-6, atol=1e-6
+        )
+
+
+def test_assert_mps_grads_match_reference_per_index_tolerance():
+    def good_fn(a, b):
+        return a * 2.0 + b * b
+
+    def bad_fn(a, b):
+        return a * 2.0 + b * b + b
+
+    a_mps = torch.tensor([1.0, 2.0], requires_grad=True)
+    b_mps = torch.tensor([3.0, 4.0], requires_grad=True)
+    a_ref = torch.tensor([1.0, 2.0], requires_grad=True)
+    b_ref = torch.tensor([3.0, 4.0], requires_grad=True)
+
+    assert_mps_grads_match_reference(
+        good_fn, good_fn,
+        (a_mps, b_mps), (a_ref, b_ref),
+        rtol={0: 1e-3, 1: 1e-6},
+        atol={0: 1e-3, 1: 1e-6},
+        names=["coarse", "fine"],
+    )
+
+    a_mps2 = torch.tensor([1.0, 2.0], requires_grad=True)
+    b_mps2 = torch.tensor([3.0, 4.0], requires_grad=True)
+    a_ref2 = torch.tensor([1.0, 2.0], requires_grad=True)
+    b_ref2 = torch.tensor([3.0, 4.0], requires_grad=True)
+    with pytest.raises(AssertionError, match=r"\[fine\]"):
+        assert_mps_grads_match_reference(
+            good_fn, bad_fn,
+            (a_mps2, b_mps2), (a_ref2, b_ref2),
+            rtol={0: 1e-3, 1: 1e-6},
+            atol={0: 1e-3, 1: 1e-6},
+            names=["coarse", "fine"],
+        )
+
+
+def test_assert_mps_grads_match_reference_deterministic_without_grad_outputs():
+    def fn(x):
+        return (x * x, x.sin())
+
+    for _ in range(2):
+        x_mps = torch.tensor([0.5, 1.5, 2.5], requires_grad=True)
+        x_ref = torch.tensor([0.5, 1.5, 2.5], requires_grad=True)
+        assert_mps_grads_match_reference(
+            fn, fn, (x_mps,), (x_ref,), rtol=1e-6, atol=1e-6
+        )
