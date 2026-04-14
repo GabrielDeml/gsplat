@@ -83,10 +83,10 @@ These unblock everything else. Do these first, in order.
           kernel, columns: Kernel / Status / PR
     - [x] Document the kernel-add workflow steps (matching "How to execute
           a checklist item" above)
-- [ ] **T0.6 — Benchmark harness**
-    - [ ] Add `tests/bench_mps.py` that times each kernel vs the
+- [x] **T0.6 — Benchmark harness**
+    - [x] Add `tests/bench_mps.py` that times each kernel vs the
           pure-PyTorch path on a fixed 100k-Gaussian scene
-    - [ ] Print a table; write results into `docs/DEV.md` on each tier
+    - [x] Print a table; write results into `docs/DEV.md` on each tier
           completion
 - [ ] **T0.7 — CI coverage**
     - [ ] Update `run_mps_tests.sh` so new tests are picked up automatically

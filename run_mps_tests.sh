@@ -47,3 +47,7 @@ python -m pytest tests/test_2dgs.py -v --tb=short --maxfail=5 2>&1 || true
 
 echo ""
 echo "Done."
+
+# Benchmarks are opt-in (slow; not part of the correctness suite).
+# Run manually:  python tests/bench_mps.py             # default 100k-Gaussian scene
+#                python tests/bench_mps.py --write-docs  # refresh docs/DEV.md table
