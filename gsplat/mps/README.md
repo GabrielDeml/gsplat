@@ -104,13 +104,13 @@ Order within Tier 1 matters: later items depend on earlier ones.
 - **Oracle:** `gsplat/cuda/_torch_impl._quat_scale_to_covar_preci`
 - **Wire-in point:** `gsplat/mps/_wrapper.py:~375` (`quat_scale_to_covar_preci`)
 
-- [ ] Write `csrc/QuatScaleToCovarPreciFwd.metal`
-- [ ] Write `csrc/QuatScaleToCovarPreciBwd.metal`
-- [ ] Wire forward into `_wrapper.quat_scale_to_covar_preci`
-- [ ] Wire backward into the corresponding `torch.autograd.Function`
-- [ ] Test: forward parity (dense + triu outputs)
-- [ ] Test: backward parity (grads to quats, scales)
-- [ ] Benchmark row added
+- [x] Write `csrc/QuatScaleToCovarPreciFwd.metal`
+- [x] Write `csrc/QuatScaleToCovarPreciBwd.metal`
+- [x] Wire forward into `_wrapper.quat_scale_to_covar_preci`
+- [x] Wire backward into the corresponding `torch.autograd.Function`
+- [x] Test: forward parity (dense + triu outputs)
+- [x] Test: backward parity (grads to quats, scales)
+- [x] Benchmark row added
 
 ### T1.2 — Spherical harmonics
 

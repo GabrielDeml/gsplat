@@ -53,6 +53,46 @@ inline float3x3 gsplat_quat_to_rotmat(float4 quat) {
     return float3x3(col0, col1, col2);
 }
 
+// VJP of gsplat_quat_to_rotmat. Accumulates into v_quat. Mirrors the CUDA
+// helper in gsplat/cuda/include/Utils.cuh::quat_to_rotmat_vjp, including the
+// final normalisation projection that removes the component of the gradient
+// along the (already-normalised) quaternion.
+inline void gsplat_quat_to_rotmat_vjp(float4 quat,
+                                      float3x3 v_R,
+                                      thread float4& v_quat) {
+    float w = quat.x;
+    float x = quat.y;
+    float y = quat.z;
+    float z = quat.w;
+    float inv_norm = rsqrt(x * x + y * y + z * z + w * w);
+    x *= inv_norm;
+    y *= inv_norm;
+    z *= inv_norm;
+    w *= inv_norm;
+
+    // v_R[col][row] addressing matches GLM's mat[col][row].
+    float4 v_quat_n = float4(
+        2.0f * (x * (v_R[1][2] - v_R[2][1]) +
+                y * (v_R[2][0] - v_R[0][2]) +
+                z * (v_R[0][1] - v_R[1][0])),
+        2.0f * (-2.0f * x * (v_R[1][1] + v_R[2][2]) +
+                y * (v_R[0][1] + v_R[1][0]) +
+                z * (v_R[0][2] + v_R[2][0]) +
+                w * (v_R[1][2] - v_R[2][1])),
+        2.0f * (x * (v_R[0][1] + v_R[1][0]) -
+                2.0f * y * (v_R[0][0] + v_R[2][2]) +
+                z * (v_R[1][2] + v_R[2][1]) +
+                w * (v_R[2][0] - v_R[0][2])),
+        2.0f * (x * (v_R[0][2] + v_R[2][0]) +
+                y * (v_R[1][2] + v_R[2][1]) -
+                2.0f * z * (v_R[0][0] + v_R[1][1]) +
+                w * (v_R[0][1] - v_R[1][0]))
+    );
+
+    float4 quat_n = float4(w, x, y, z);
+    v_quat += (v_quat_n - dot(v_quat_n, quat_n) * quat_n) * inv_norm;
+}
+
 // Closed-form 3x3 inverse via cofactor/adjugate. Caller is responsible
 // for ensuring the input is non-singular; we do not guard against
 // det(m) == 0.

@@ -175,7 +175,7 @@ of each `.metal` file. For atomic float add use `atomic_fetch_add_explicit` on
 | Docs + status table (T0.5) | 0 | done | — |
 | Benchmark harness (T0.6) | 0 | done | — |
 | CI coverage (T0.7) | 0 | pending | — |
-| `QuatScaleToCovarPreciFwd/Bwd` (T1.1) | 1 | pending | — |
+| `QuatScaleToCovarPreciFwd/Bwd` (T1.1) | 1 | native | — |
 | `SphericalHarmonicsFwd/Bwd` (T1.2) | 1 | pending | — |
 | `ProjectionEWA3DGSFusedFwd/Bwd` (T1.3) | 1 | pending | — |
 | `IntersectTile` (T1.4) | 1 | pending | — |

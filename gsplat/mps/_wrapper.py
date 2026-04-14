@@ -362,19 +362,145 @@ def quat_scale_to_covar_preci(
         - **Covariance matrices**. If `triu` is True [..., 6], otherwise [..., 3, 3].
         - **Precision matrices**. If `triu` is True [..., 6], otherwise [..., 3, 3].
     """
-    # TODO: MPS: Replace with a Metal kernel for better performance.
-    #   CUDA equivalent: ``QuatScaleToCovarCUDA.cu``
-    from gsplat.cuda._math import _quat_scale_to_covar_preci
-
     batch_dims = quats.shape[:-1]
     assert quats.shape == batch_dims + (4,), quats.shape
     assert scales.shape == batch_dims + (3,), scales.shape
-    quats = quats.contiguous()
-    scales = scales.contiguous()
+
+    # Native Metal path when the MPS backend compiled. Fall back to the pure-
+    # PyTorch oracle otherwise (e.g. CPU-only dev boxes, torch builds without
+    # torch.mps.compile_shader).
+    if _mps_backend_available() and quats.device.type == "mps":
+        quats_c = quats.contiguous()
+        scales_c = scales.contiguous()
+        covars_flat, precis_flat = _QuatScaleToCovarPreci.apply(
+            quats_c.reshape(-1, 4),
+            scales_c.reshape(-1, 3),
+            compute_covar,
+            compute_preci,
+            triu,
+        )
+        out_shape = batch_dims + ((6,) if triu else (3, 3))
+        covars = covars_flat.reshape(out_shape) if compute_covar else None
+        precis = precis_flat.reshape(out_shape) if compute_preci else None
+        return covars, precis
+
+    from gsplat.cuda._math import _quat_scale_to_covar_preci
+
     covars, precis = _quat_scale_to_covar_preci(
-        quats, scales, compute_covar, compute_preci, triu
+        quats.contiguous(), scales.contiguous(), compute_covar, compute_preci, triu
     )
     return covars if compute_covar else None, precis if compute_preci else None
+
+
+def _mps_backend_available() -> bool:
+    try:
+        from ._backend import _C
+    except Exception:
+        return False
+    return _C is not None
+
+
+class _QuatScaleToCovarPreci(torch.autograd.Function):
+    """Native Metal forward/backward for quat_scale_to_covar_preci."""
+
+    @staticmethod
+    def forward(
+        ctx,
+        quats: Tensor,  # [N, 4] contiguous, float32, device=mps
+        scales: Tensor,  # [N, 3] contiguous, float32, device=mps
+        compute_covar: bool,
+        compute_preci: bool,
+        triu: bool,
+    ) -> Tuple[Tensor, Tensor]:
+        N = quats.shape[0]
+        assert quats.shape == (N, 4)
+        assert scales.shape == (N, 3)
+        assert quats.device.type == "mps" and scales.device.type == "mps"
+
+        out_dim = 6 if triu else 9
+        # One of the two outputs may be unused; allocate a 1-element sentinel
+        # when not requested so the kernel always has a valid buffer binding.
+        if compute_covar:
+            covars_flat = torch.empty(N * out_dim, dtype=quats.dtype, device=quats.device)
+        else:
+            covars_flat = torch.empty(1, dtype=quats.dtype, device=quats.device)
+        if compute_preci:
+            precis_flat = torch.empty(N * out_dim, dtype=quats.dtype, device=quats.device)
+        else:
+            precis_flat = torch.empty(1, dtype=quats.dtype, device=quats.device)
+
+        fwd = _get_mps_backend().get_kernel("gsplat_quat_scale_to_covar_preci_fwd")
+        fwd(
+            quats,
+            scales,
+            covars_flat,
+            precis_flat,
+            int(N),
+            1 if triu else 0,
+            1 if compute_covar else 0,
+            1 if compute_preci else 0,
+            threads=int(N),
+        )
+
+        ctx.save_for_backward(quats, scales)
+        ctx.compute_covar = compute_covar
+        ctx.compute_preci = compute_preci
+        ctx.triu = triu
+
+        out_shape = (N, 6) if triu else (N, 3, 3)
+        covars = covars_flat.reshape(out_shape) if compute_covar else covars_flat[:0]
+        precis = precis_flat.reshape(out_shape) if compute_preci else precis_flat[:0]
+        return covars, precis
+
+    @staticmethod
+    def backward(ctx, v_covars: Tensor, v_precis: Tensor):
+        quats, scales = ctx.saved_tensors
+        compute_covar: bool = ctx.compute_covar
+        compute_preci: bool = ctx.compute_preci
+        triu: bool = ctx.triu
+
+        N = quats.shape[0]
+        out_dim = 6 if triu else 9
+
+        if compute_covar:
+            if v_covars.is_sparse:
+                v_covars = v_covars.to_dense()
+            v_covars_flat = v_covars.contiguous().reshape(N * out_dim)
+        else:
+            v_covars_flat = torch.empty(1, dtype=quats.dtype, device=quats.device)
+
+        if compute_preci:
+            if v_precis.is_sparse:
+                v_precis = v_precis.to_dense()
+            v_precis_flat = v_precis.contiguous().reshape(N * out_dim)
+        else:
+            v_precis_flat = torch.empty(1, dtype=quats.dtype, device=quats.device)
+
+        v_quats = torch.empty(N * 4, dtype=quats.dtype, device=quats.device)
+        v_scales = torch.empty(N * 3, dtype=quats.dtype, device=quats.device)
+
+        bwd = _get_mps_backend().get_kernel("gsplat_quat_scale_to_covar_preci_bwd")
+        bwd(
+            quats,
+            scales,
+            v_covars_flat,
+            v_precis_flat,
+            v_quats,
+            v_scales,
+            int(N),
+            1 if triu else 0,
+            1 if compute_covar else 0,
+            1 if compute_preci else 0,
+            threads=int(N),
+        )
+
+        return (
+            v_quats.reshape(N, 4),
+            v_scales.reshape(N, 3),
+            None,  # compute_covar
+            None,  # compute_preci
+            None,  # triu
+        )
 
 
 def persp_proj(

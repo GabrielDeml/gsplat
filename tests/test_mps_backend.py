@@ -529,3 +529,118 @@ def test_assert_mps_grads_match_reference_deterministic_without_grad_outputs():
         assert_mps_grads_match_reference(
             fn, fn, (x_mps,), (x_ref,), rtol=1e-6, atol=1e-6
         )
+
+
+# ---------------------------------------------------------------------------
+# T1.1 — quat_scale_to_covar_preci native MPS kernel parity
+# ---------------------------------------------------------------------------
+
+
+_SKIP_NO_MPS = pytest.mark.skipif(
+    not (
+        hasattr(torch.backends, "mps")
+        and torch.backends.mps.is_available()
+        and hasattr(torch, "mps")
+        and hasattr(torch.mps, "compile_shader")
+    ),
+    reason="Native MPS shader runtime is unavailable",
+)
+
+
+def _make_quat_scale_inputs(N: int, device: torch.device, seed: int = 0):
+    gen = torch.Generator(device="cpu").manual_seed(seed)
+    quats_cpu = torch.randn(N, 4, generator=gen)
+    scales_cpu = torch.rand(N, 3, generator=gen) * 2.0 + 0.1  # avoid tiny scales
+    return quats_cpu.to(device), scales_cpu.to(device)
+
+
+@_SKIP_NO_MPS
+@pytest.mark.parametrize("N", [1, 1024, 100_000])
+@pytest.mark.parametrize("triu", [False, True])
+@pytest.mark.parametrize(
+    "compute_covar,compute_preci",
+    [(True, True), (True, False), (False, True)],
+)
+def test_quat_scale_to_covar_preci_forward_parity(N, triu, compute_covar, compute_preci):
+    from gsplat.cuda._math import _quat_scale_to_covar_preci
+    from gsplat.mps._wrapper import quat_scale_to_covar_preci
+
+    device = torch.device("mps")
+    quats, scales = _make_quat_scale_inputs(N, device)
+
+    covars, precis = quat_scale_to_covar_preci(
+        quats, scales, compute_covar, compute_preci, triu
+    )
+    c_ref, p_ref = _quat_scale_to_covar_preci(
+        quats, scales, compute_covar, compute_preci, triu
+    )
+
+    if compute_covar:
+        assert_mps_matches_reference(covars, c_ref, rtol=1e-4, atol=1e-5, names="covars")
+    else:
+        assert covars is None
+    if compute_preci:
+        assert_mps_matches_reference(precis, p_ref, rtol=1e-3, atol=1e-4, names="precis")
+    else:
+        assert precis is None
+
+
+@_SKIP_NO_MPS
+@pytest.mark.parametrize("N", [1, 1024])
+@pytest.mark.parametrize("triu", [False, True])
+@pytest.mark.parametrize(
+    "compute_covar,compute_preci",
+    [(True, True), (True, False), (False, True)],
+)
+def test_quat_scale_to_covar_preci_backward_parity(N, triu, compute_covar, compute_preci):
+    from gsplat.cuda._math import _quat_scale_to_covar_preci
+    from gsplat.mps._wrapper import quat_scale_to_covar_preci
+
+    device = torch.device("mps")
+    quats, scales = _make_quat_scale_inputs(N, device, seed=1)
+
+    def mps_fn(q, s):
+        c, p = quat_scale_to_covar_preci(q, s, compute_covar, compute_preci, triu)
+        # Filter out the None slots so autograd only sees real tensors.
+        return tuple(t for t in (c, p) if t is not None)
+
+    def ref_fn(q, s):
+        c, p = _quat_scale_to_covar_preci(q, s, compute_covar, compute_preci, triu)
+        return tuple(t for t in (c, p) if t is not None)
+
+    q_mps = quats.detach().clone().requires_grad_(True)
+    s_mps = scales.detach().clone().requires_grad_(True)
+    q_ref = quats.detach().clone().requires_grad_(True)
+    s_ref = scales.detach().clone().requires_grad_(True)
+
+    assert_mps_grads_match_reference(
+        mps_fn,
+        ref_fn,
+        (q_mps, s_mps),
+        (q_ref, s_ref),
+        rtol=1e-3,
+        atol=1e-4,
+        names=["v_quats", "v_scales"],
+    )
+
+
+@_SKIP_NO_MPS
+def test_quat_scale_to_covar_preci_handles_non_normalized_quats():
+    """The kernel must internally normalize via rsqrt, matching the oracle."""
+    from gsplat.cuda._math import _quat_scale_to_covar_preci
+    from gsplat.mps._wrapper import quat_scale_to_covar_preci
+
+    device = torch.device("mps")
+    quats, scales = _make_quat_scale_inputs(32, device, seed=7)
+    # Blow up the magnitudes to exercise the rsqrt normalization path.
+    quats = quats * 17.3
+
+    covars, precis = quat_scale_to_covar_preci(quats, scales, True, True, False)
+    c_ref, p_ref = _quat_scale_to_covar_preci(quats, scales, True, True, False)
+    assert_mps_matches_reference(
+        (covars, precis),
+        (c_ref, p_ref),
+        rtol=1e-4,
+        atol=1e-5,
+        names=["covars", "precis"],
+    )
