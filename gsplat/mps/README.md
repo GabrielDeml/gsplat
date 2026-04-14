@@ -69,14 +69,14 @@ These unblock everything else. Do these first, in order.
 - [x] **T0.3 — Backward parity helper**
     - [x] Add `assert_mps_grads_match_reference(inputs, mps_fn, ref_fn, ...)`
           that runs `torch.autograd.grad` on both paths and compares
-- [ ] **T0.4 — Shared Metal utilities**
-    - [ ] Create `gsplat/mps/csrc/common.metal` (will be concatenated by the
+- [x] **T0.4 — Shared Metal utilities**
+    - [x] Create `gsplat/mps/csrc/common.metal` (will be concatenated by the
           build bundle — keep symbols prefixed `gsplat_`)
-    - [ ] Add `quat_to_rotmat(float4 q) -> float3x3`
-    - [ ] Add `mat3_inverse(float3x3 m) -> float3x3`
-    - [ ] Add `mat2_inverse(float2x2 m) -> float2x2`
-    - [ ] Add `atomic_add_float(device atomic<float>* addr, float val)`
-    - [ ] Add tile-size constants (`TILE_WIDTH=16`, `TILE_HEIGHT=16`) matching
+    - [x] Add `quat_to_rotmat(float4 q) -> float3x3`
+    - [x] Add `mat3_inverse(float3x3 m) -> float3x3`
+    - [x] Add `mat2_inverse(float2x2 m) -> float2x2`
+    - [x] Add `atomic_add_float(device atomic<float>* addr, float val)`
+    - [x] Add tile-size constants (`TILE_WIDTH=16`, `TILE_HEIGHT=16`) matching
           CUDA defaults
 - [ ] **T0.5 — Documentation**
     - [ ] Add an "MPS porting status" table to `docs/DEV.md` with one row per
