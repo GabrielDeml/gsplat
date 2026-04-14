@@ -56,6 +56,11 @@ from gsplat.cuda._lidar import (
     FOV as FOVBase,
 )
 
+# Import the MPS backend eagerly on real MPS systems so ``import gsplat`` fails
+# fast if packaged Metal shader setup is unavailable.
+if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+    from ._backend import _C as _MPS_NATIVE_BACKEND  # noqa: F401
+
 # ---------------------------------------------------------------------------
 # Lidar parameter wrappers (no ``to_cpp()`` needed on MPS)
 # ---------------------------------------------------------------------------
@@ -115,6 +120,55 @@ def has_reloc() -> bool:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _unavailable_mps_cls(name: str) -> Any:
+    """Placeholder class for native CUDA-only wrappers on the MPS backend."""
+
+    class _UnavailableMpsCls:
+        __name__ = name
+
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            raise RuntimeError(
+                "gsplat MPS backend does not expose a native class for "
+                f"'{name}'. Use the pure-Python MPS equivalents instead."
+            )
+
+    return _UnavailableMpsCls
+
+
+def _make_lazy_cuda_cls(name: str) -> Any:
+    """Compatibility shim for tests/shared code that import this helper."""
+
+    return globals().get(name, _unavailable_mps_cls(name))
+
+
+def _get_mps_backend() -> Any:
+    """Return the compiled MPS backend handle.
+
+    The public MPS wrapper still uses pure-PyTorch implementations today, but
+    future native Metal kernels will resolve through this helper.
+    """
+
+    # pylint: disable=import-outside-toplevel
+    from ._backend import _C
+
+    if _C is None:
+        raise RuntimeError(
+            "gsplat MPS backend is not initialized. Native MPS shaders are only "
+            "available when torch.backends.mps.is_available() is true and gsplat "
+            "successfully compiles its packaged Metal sources."
+        )
+    return _C
+
+
+def _make_lazy_mps_shader(name: str) -> Callable:
+    """Resolve a compiled Metal kernel lazily from the cached backend handle."""
+
+    def call_mps_shader(*args: Any, **kwargs: Any) -> Any:
+        return _get_mps_backend().get_kernel(name)(*args, **kwargs)
+
+    return call_mps_shader
 
 
 def _triu_to_full(triu: Tensor) -> Tensor:

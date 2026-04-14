@@ -13,33 +13,35 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
-MPS backend loader for gsplat.
-
-Currently there is no native Metal extension — all operations are handled by
-pure-PyTorch reference implementations. When native Metal kernels are added,
-this module will load them similarly to the CUDA backend.
-"""
+"""MPS backend loader for gsplat."""
 
 import torch
 from rich.console import Console
 
+from .build import build_and_load_gsplat
+
 
 def mps_available() -> bool:
     """Check if MPS (Metal Performance Shaders) backend is available."""
+
     return hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
 
 
-# TODO: MPS: Load the compiled Metal extension here once native kernels exist.
-#   Follow the same pattern as gsplat/cuda/_backend.py:
-#   1. Try ``from gsplat import csrc_mps as _C``
-#   2. Fall back to JIT compilation via ``build_and_load_gsplat()``
 _C = None
 
-if not mps_available():
+if mps_available():
+    try:
+        _C = build_and_load_gsplat()
+    except Exception as exc:
+        raise RuntimeError(
+            "gsplat: native MPS shader setup failed. This machine reports MPS "
+            "availability, so gsplat requires packaged Metal shader initialization "
+            f"to succeed. {exc}"
+        ) from exc
+else:
     Console().print(
         "[yellow]gsplat: No MPS backend available. "
         "gsplat MPS will run on CPU via PyTorch fallbacks.[/yellow]"
     )
 
-__all__ = ["_C"]
+__all__ = ["_C", "mps_available"]
