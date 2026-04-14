@@ -126,3 +126,76 @@ cat compile_commands.json
 
 - The torch extensions include currently raises an error:
   `In included file: use of undeclared identifier 'noinline'; did you mean 'inline'?` -->
+
+## MPS Backend
+
+The MPS (Apple Silicon) backend lives in `gsplat/mps/`. Metal kernel sources go in
+`gsplat/mps/csrc/` and are auto-discovered, concatenated, hashed, and JIT-compiled
+by `gsplat/mps/build.py` on first import — no build-system edits are needed to add
+a new kernel. The full porting roadmap (tiers, dependencies, per-kernel references)
+is tracked in `gsplat/mps/README.md`; this section is the short-form status and
+workflow reference.
+
+### Adding an MPS kernel
+
+For each kernel ported from CUDA:
+
+1. Read the CUDA reference (`gsplat/cuda/csrc/<Name>.cu`) and the pure-PyTorch oracle
+   in `gsplat/cuda/_torch_impl*.py` to understand the numeric behavior.
+2. Read the wire-in site in `gsplat/mps/_wrapper.py` (line numbers are cited per
+   task in `gsplat/mps/README.md`) to understand the I/O contract.
+3. Write `gsplat/mps/csrc/<Name>.metal`. Mirror the CUDA filename. Shared helpers
+   (quaternion math, atomics, tile-size constants) live in `csrc/common.metal`
+   and are prefixed `gsplat_`.
+4. Wire the kernel into `_wrapper.py`: replace the pure-PyTorch fallback with
+   `_C.<kernel_name>(...)` gated by an `_C is not None` check. Leave the fallback
+   reachable during rollout; drop it in a follow-up once stable.
+5. Add forward and (where applicable) backward parity tests in
+   `tests/test_mps_backend.py` using the helpers from T0.2/T0.3
+   (`assert_mps_matches_reference`, `assert_mps_grads_match_reference`).
+6. Run `bash run_mps_tests.sh` on an Apple Silicon host and confirm no regressions.
+7. Add a benchmark row (see `tests/bench_mps.py`, T0.6) and update the status table
+   below.
+8. Tick the corresponding checkbox in `gsplat/mps/README.md`.
+
+**Ground rules.** Tile size, threadgroup layout, and shared-memory budget are
+per-kernel design decisions — document the choice in a short comment at the top
+of each `.metal` file. For atomic float add use `atomic_fetch_add_explicit` on
+`atomic<float>` (Metal 3+); the helper `gsplat_atomic_add_float` is in
+`csrc/common.metal`.
+
+### MPS porting status
+
+| Kernel | Tier | Status | PR |
+|---|---|---|---|
+| MPS device pytest fixture (T0.1) | 0 | done | — |
+| Forward parity helper (T0.2) | 0 | done | — |
+| Backward parity helper (T0.3) | 0 | done | — |
+| `common.metal` shared utilities (T0.4) | 0 | done | — |
+| Docs + status table (T0.5) | 0 | done | — |
+| Benchmark harness (T0.6) | 0 | pending | — |
+| CI coverage (T0.7) | 0 | pending | — |
+| `QuatScaleToCovarPreciFwd/Bwd` (T1.1) | 1 | pending | — |
+| `SphericalHarmonicsFwd/Bwd` (T1.2) | 1 | pending | — |
+| `ProjectionEWA3DGSFusedFwd/Bwd` (T1.3) | 1 | pending | — |
+| `IntersectTile` (T1.4) | 1 | pending | — |
+| `IntersectOffset` (T1.5) | 1 | pending | — |
+| `RasterizeToPixels3DGSFwd/Bwd` (T1.6) | 1 | pending | — |
+| `RasterizeToIndices3DGS` (T1.7) | 1 | pending | — |
+| `Adam` (T1.8) | 1 | pending | — |
+| `ProjectionEWA3DGSPackedFwd/Bwd` (T2.1) | 2 | pending | — |
+| `RasterizeToPixelsFromWorld3DGSFwd/Bwd` (T2.2) | 2 | pending | — |
+| `ProjectionUT3DGSFused` (T2.3) | 2 | pending | — |
+| Camera wrappers — pinhole/ortho/fisheye (T2.4a) | 2 | pending | — |
+| Camera wrappers — ftheta (T2.4b) | 2 | pending | — |
+| Camera wrappers — bivariate (T2.4c) | 2 | pending | — |
+| Camera wrappers — rolling-shutter (T2.4d) | 2 | pending | — |
+| `Relocation` (T2.5) | 2 | pending | — |
+| `Projection2DGSFusedFwd/Bwd` (T3.1) | 3 | pending | — |
+| `Projection2DGSPackedFwd/Bwd` (T3.2) | 3 | pending | — |
+| `RasterizeToPixels2DGSFwd/Bwd` (T3.3) | 3 | pending | — |
+| `RasterizeToIndices2DGS` (T3.4) | 3 | pending | — |
+| `IntersectTileLidar` (T4.1) | 4 | pending | — |
+
+Status values: `done`, `in progress`, `pending`. Fill the PR column with the
+merge PR number when each row flips to `done`.

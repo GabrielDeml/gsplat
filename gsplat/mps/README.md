@@ -78,10 +78,10 @@ These unblock everything else. Do these first, in order.
     - [x] Add `atomic_add_float(device atomic<float>* addr, float val)`
     - [x] Add tile-size constants (`TILE_WIDTH=16`, `TILE_HEIGHT=16`) matching
           CUDA defaults
-- [ ] **T0.5 — Documentation**
-    - [ ] Add an "MPS porting status" table to `docs/DEV.md` with one row per
+- [x] **T0.5 — Documentation**
+    - [x] Add an "MPS porting status" table to `docs/DEV.md` with one row per
           kernel, columns: Kernel / Status / PR
-    - [ ] Document the kernel-add workflow steps (matching "How to execute
+    - [x] Document the kernel-add workflow steps (matching "How to execute
           a checklist item" above)
 - [ ] **T0.6 — Benchmark harness**
     - [ ] Add `tests/bench_mps.py` that times each kernel vs the
