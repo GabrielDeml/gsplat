@@ -56,12 +56,12 @@ execute it independently. For every kernel task:
 
 These unblock everything else. Do these first, in order.
 
-- [ ] **T0.1 — MPS device pytest fixture**
-    - [ ] Open `tests/conftest.py` (create if missing)
-    - [ ] Add a `device` fixture that parametrizes `cuda`, `mps`, `cpu` with
+- [x] **T0.1 — MPS device pytest fixture**
+    - [x] Open `tests/conftest.py` (create if missing)
+    - [x] Add a `device` fixture that parametrizes `cuda`, `mps`, `cpu` with
           skip markers (`torch.cuda.is_available()`,
           `torch.backends.mps.is_available()`)
-    - [ ] Document usage in a comment block at the top
+    - [x] Document usage in a comment block at the top
 - [ ] **T0.2 — Forward parity helper**
     - [ ] In `tests/test_mps_backend.py` add `assert_mps_matches_reference(
           mps_out, ref_out, rtol, atol)` that wraps `torch.testing.assert_close`
