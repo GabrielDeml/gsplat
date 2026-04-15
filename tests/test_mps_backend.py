@@ -644,3 +644,129 @@ def test_quat_scale_to_covar_preci_handles_non_normalized_quats():
         atol=1e-5,
         names=["covars", "precis"],
     )
+
+
+# ---------------------------------------------------------------------------
+# T1.2 — spherical_harmonics
+# ---------------------------------------------------------------------------
+
+
+def _make_sh_inputs(N: int, K: int, device: torch.device, seed: int = 0):
+    gen = torch.Generator(device="cpu").manual_seed(seed)
+    dirs_cpu = torch.randn(N, 3, generator=gen)
+    coeffs_cpu = torch.randn(N, K, 3, generator=gen) * 0.3
+    return dirs_cpu.to(device), coeffs_cpu.to(device)
+
+
+@_SKIP_NO_MPS
+@pytest.mark.parametrize("N", [1, 1024, 100_000])
+@pytest.mark.parametrize("degree", [0, 1, 2, 3, 4])
+@pytest.mark.parametrize("with_mask", [False, True])
+def test_spherical_harmonics_forward_parity(N, degree, with_mask):
+    from gsplat.cuda._torch_impl import _spherical_harmonics
+    from gsplat.mps._wrapper import spherical_harmonics
+
+    K = (degree + 1) ** 2
+    device = torch.device("mps")
+    dirs, coeffs = _make_sh_inputs(N, K, device, seed=2)
+
+    if with_mask:
+        gen = torch.Generator(device="cpu").manual_seed(N + degree + 7)
+        masks_cpu = torch.rand(N, generator=gen) > 0.3  # ~70% kept
+        masks = masks_cpu.to(device)
+    else:
+        masks = None
+
+    mps_out = spherical_harmonics(degree, dirs, coeffs, masks=masks)
+    # The pure-PyTorch oracle does not support masks — compute the full
+    # reference then zero out masked rows so we can compare bit-for-bit.
+    ref_full = _spherical_harmonics(degree, dirs, coeffs)
+    if with_mask:
+        ref_full = ref_full * masks.to(ref_full.dtype).unsqueeze(-1)
+
+    assert_mps_matches_reference(
+        mps_out, ref_full, rtol=1e-4, atol=1e-5, names="colors"
+    )
+
+
+@_SKIP_NO_MPS
+@pytest.mark.parametrize("N", [1, 1024])
+@pytest.mark.parametrize("degree", [1, 2, 3, 4])
+def test_spherical_harmonics_backward_parity(N, degree):
+    # degree=0 is omitted: band 0 is constant in dirs, so the autograd graph
+    # has no dirs dependency and torch.autograd.grad raises. Coeff-only
+    # backward at degree 0 is covered by test_spherical_harmonics_backward_skips_v_dirs_when_frozen
+    # (via the same _SphericalHarmonics.backward code path).
+    from gsplat.cuda._torch_impl import _spherical_harmonics
+    from gsplat.mps._wrapper import spherical_harmonics
+
+    K = (degree + 1) ** 2
+    device = torch.device("mps")
+    dirs, coeffs = _make_sh_inputs(N, K, device, seed=3)
+
+    def mps_fn(d, c):
+        return spherical_harmonics(degree, d, c)
+
+    def ref_fn(d, c):
+        return _spherical_harmonics(degree, d, c)
+
+    d_mps = dirs.detach().clone().requires_grad_(True)
+    c_mps = coeffs.detach().clone().requires_grad_(True)
+    d_ref = dirs.detach().clone().requires_grad_(True)
+    c_ref = coeffs.detach().clone().requires_grad_(True)
+
+    assert_mps_grads_match_reference(
+        mps_fn,
+        ref_fn,
+        (d_mps, c_mps),
+        (d_ref, c_ref),
+        rtol=1e-3,
+        atol=1e-4,
+        names=["v_dirs", "v_coeffs"],
+    )
+
+
+@_SKIP_NO_MPS
+def test_spherical_harmonics_backward_skips_v_dirs_when_frozen():
+    """dirs.requires_grad=False must return (None, v_coeffs) with only v_coeffs populated."""
+    from gsplat.cuda._torch_impl import _spherical_harmonics
+    from gsplat.mps._wrapper import spherical_harmonics
+
+    degree = 3
+    K = (degree + 1) ** 2
+    N = 64
+    device = torch.device("mps")
+    dirs, coeffs = _make_sh_inputs(N, K, device, seed=4)
+
+    c_mps = coeffs.detach().clone().requires_grad_(True)
+    c_ref = coeffs.detach().clone().requires_grad_(True)
+
+    out_mps = spherical_harmonics(degree, dirs, c_mps)
+    out_ref = _spherical_harmonics(degree, dirs, c_ref)
+
+    g_out = torch.randn_like(out_mps)
+    (v_coeffs_mps,) = torch.autograd.grad(out_mps, (c_mps,), grad_outputs=g_out)
+    (v_coeffs_ref,) = torch.autograd.grad(out_ref, (c_ref,), grad_outputs=g_out)
+
+    assert_mps_matches_reference(
+        v_coeffs_mps, v_coeffs_ref, rtol=1e-3, atol=1e-4, names="v_coeffs"
+    )
+
+
+@_SKIP_NO_MPS
+def test_spherical_harmonics_forward_preserves_batch_dims():
+    """Verify multi-dim batch shapes are flattened/reshaped correctly."""
+    from gsplat.cuda._torch_impl import _spherical_harmonics
+    from gsplat.mps._wrapper import spherical_harmonics
+
+    degree = 2
+    K = (degree + 1) ** 2
+    device = torch.device("mps")
+    gen = torch.Generator(device="cpu").manual_seed(5)
+    dirs = torch.randn(4, 8, 3, generator=gen).to(device)
+    coeffs = (torch.randn(4, 8, K, 3, generator=gen) * 0.3).to(device)
+
+    mps_out = spherical_harmonics(degree, dirs, coeffs)
+    ref_out = _spherical_harmonics(degree, dirs, coeffs)
+    assert mps_out.shape == (4, 8, 3)
+    assert_mps_matches_reference(mps_out, ref_out, rtol=1e-4, atol=1e-5)

@@ -332,9 +332,24 @@ def spherical_harmonics(
     ), coeffs.shape
     if masks is not None:
         assert masks.shape == batch_dims, masks.shape
-    # TODO: MPS: Replace with a Metal kernel for better performance.
-    #   Also add mask support (the PyTorch reference does not support masks).
-    #   CUDA equivalent: ``SphericalHarmonicsCUDA.cu``
+
+    if _mps_backend_available() and dirs.device.type == "mps":
+        N = int(dirs.numel() // 3)
+        K = int(coeffs.shape[-2])
+        dirs_flat = dirs.contiguous().reshape(N, 3)
+        coeffs_flat = coeffs.contiguous().reshape(N, K, 3)
+        masks_flat = (
+            masks.contiguous().reshape(N).to(torch.bool)
+            if masks is not None
+            else None
+        )
+        colors_flat = _SphericalHarmonics.apply(
+            dirs_flat, coeffs_flat, masks_flat, K, int(degrees_to_use)
+        )
+        return colors_flat.reshape(batch_dims + (3,))
+
+    # TODO: MPS: The pure-PyTorch reference does not support masks; callers
+    # that pass a mask on non-MPS devices will see it silently ignored.
     return _spherical_harmonics(
         degrees_to_use, dirs.contiguous(), coeffs.contiguous()
     )
@@ -500,6 +515,101 @@ class _QuatScaleToCovarPreci(torch.autograd.Function):
             None,  # compute_covar
             None,  # compute_preci
             None,  # triu
+        )
+
+
+class _SphericalHarmonics(torch.autograd.Function):
+    """Native Metal forward/backward for spherical_harmonics."""
+
+    @staticmethod
+    def forward(
+        ctx,
+        dirs: Tensor,  # [N, 3] contiguous, float32, device=mps
+        coeffs: Tensor,  # [N, K, 3] contiguous, float32, device=mps
+        masks: Optional[Tensor],  # [N] bool, device=mps, or None
+        K: int,
+        degrees_to_use: int,
+    ) -> Tensor:
+        N = dirs.shape[0]
+        assert dirs.shape == (N, 3)
+        assert coeffs.shape == (N, K, 3)
+        assert dirs.device.type == "mps" and coeffs.device.type == "mps"
+
+        has_mask = masks is not None
+        if has_mask:
+            assert masks.shape == (N,) and masks.dtype == torch.bool
+            masks_u8 = masks.to(torch.uint8).contiguous()
+        else:
+            # Sentinel — never read because has_mask=0.
+            masks_u8 = torch.zeros(1, dtype=torch.uint8, device=dirs.device)
+
+        # Pre-zeroed so masked rows (and unused higher bands) stay at 0.
+        colors_flat = torch.zeros(N * 3, dtype=dirs.dtype, device=dirs.device)
+
+        fwd = _get_mps_backend().get_kernel("gsplat_spherical_harmonics_fwd")
+        fwd(
+            dirs,
+            coeffs,
+            masks_u8,
+            colors_flat,
+            int(N),
+            int(K),
+            int(degrees_to_use),
+            1 if has_mask else 0,
+            threads=int(N),
+        )
+
+        ctx.save_for_backward(dirs, coeffs, masks_u8)
+        ctx.N = N
+        ctx.K = K
+        ctx.degrees_to_use = degrees_to_use
+        ctx.has_mask = has_mask
+        return colors_flat.reshape(N, 3)
+
+    @staticmethod
+    def backward(ctx, v_colors: Tensor):
+        dirs, coeffs, masks_u8 = ctx.saved_tensors
+        N: int = ctx.N
+        K: int = ctx.K
+        degrees_to_use: int = ctx.degrees_to_use
+        has_mask: bool = ctx.has_mask
+
+        v_colors_flat = v_colors.contiguous().reshape(N * 3)
+
+        # Pre-zero outputs so masked rows (and unused higher SH bands) remain
+        # at zero — the kernel returns early without writing them.
+        v_coeffs_flat = torch.zeros(N * K * 3, dtype=dirs.dtype, device=dirs.device)
+
+        compute_v_dirs = ctx.needs_input_grad[0]
+        if compute_v_dirs:
+            v_dirs_flat = torch.zeros(N * 3, dtype=dirs.dtype, device=dirs.device)
+        else:
+            v_dirs_flat = torch.zeros(1, dtype=dirs.dtype, device=dirs.device)
+
+        bwd = _get_mps_backend().get_kernel("gsplat_spherical_harmonics_bwd")
+        bwd(
+            dirs,
+            coeffs,
+            masks_u8,
+            v_colors_flat,
+            v_coeffs_flat,
+            v_dirs_flat,
+            int(N),
+            int(K),
+            int(degrees_to_use),
+            1 if has_mask else 0,
+            1 if compute_v_dirs else 0,
+            threads=int(N),
+        )
+
+        v_dirs = v_dirs_flat.reshape(N, 3) if compute_v_dirs else None
+        v_coeffs = v_coeffs_flat.reshape(N, K, 3)
+        return (
+            v_dirs,    # dirs
+            v_coeffs,  # coeffs
+            None,      # masks
+            None,      # K
+            None,      # degrees_to_use
         )
 
 

@@ -119,12 +119,12 @@ Order within Tier 1 matters: later items depend on earlier ones.
   `_eval_sh_bases_fast`
 - **Wire-in point:** `gsplat/mps/_wrapper.py:~342`
 
-- [ ] Write `csrc/SphericalHarmonicsFwd.metal` (support orders 0–4, masked)
-- [ ] Write `csrc/SphericalHarmonicsBwd.metal`
-- [ ] Wire into `_wrapper.spherical_harmonics`
-- [ ] Test: forward parity for each order 0..4, with and without mask
-- [ ] Test: backward parity (grads to dirs, coeffs)
-- [ ] Benchmark row added
+- [x] Write `csrc/SphericalHarmonicsFwd.metal` (support orders 0–4, masked)
+- [x] Write `csrc/SphericalHarmonicsBwd.metal`
+- [x] Wire into `_wrapper.spherical_harmonics`
+- [x] Test: forward parity for each order 0..4, with and without mask
+- [x] Test: backward parity (grads to dirs, coeffs)
+- [x] Benchmark row added
 
 ### T1.3 — EWA projection (fused, dense)
 
