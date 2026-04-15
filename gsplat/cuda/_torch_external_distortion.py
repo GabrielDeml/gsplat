@@ -23,7 +23,7 @@ import math
 
 import torch
 
-from ._wrapper import (
+from gsplat._types import (
     BivariateWindshieldModelParameters,
     ExternalDistortionReferencePolynomial,
 )

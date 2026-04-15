@@ -18,6 +18,19 @@ Pytest configuration and shared fixtures for gsplat tests.
 
 This file is automatically discovered by pytest and applies to all test files
 in this directory and subdirectories.
+
+Device parametrization
+----------------------
+Tests that should run across backends can request the ``device`` fixture. It
+is parametrized over ``cuda``, ``mps``, and ``cpu``; parameters whose backend
+is unavailable on the host are skipped automatically, so a single test body
+covers all platforms without per-test ``skipif`` boilerplate.
+
+Example::
+
+    def test_zeros(device):
+        x = torch.zeros(3, device=device)
+        assert x.device.type in {"cuda", "mps", "cpu"}
 """
 
 import gc
@@ -28,12 +41,45 @@ import torch
 import torch.distributed
 
 
+def _gpu_available():
+    """Check if any GPU backend (CUDA or MPS) is available."""
+    return torch.cuda.is_available() or (
+        hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
+    )
+
+
+def _get_device():
+    """Return the best available device."""
+    if torch.cuda.is_available():
+        return torch.device("cuda:0")
+    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
+
+
+@pytest.fixture(params=["cuda", "mps", "cpu"])
+def device(request):
+    """Parametrized device fixture covering cuda, mps, and cpu.
+
+    Unavailable backends are skipped per-parameter so tests that request this
+    fixture run once per backend present on the host.
+    """
+    backend = request.param
+    if backend == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA not available")
+    if backend == "mps" and not (
+        hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
+    ):
+        pytest.skip("MPS not available")
+    return torch.device("cuda:0" if backend == "cuda" else backend)
+
+
 @pytest.fixture(autouse=True)
 def setup_test_environment():
     """
     Autouse fixture that runs before every test to ensure:
     1. Deterministic random seed
-    2. CUDA cache is cleared
+    2. GPU cache is cleared
     3. Garbage collection is performed
 
     This fixture automatically applies to all tests in this directory

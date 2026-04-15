@@ -19,7 +19,17 @@ from typing import Tuple
 import torch
 from torch import Tensor
 
-from .cuda._wrapper import _make_lazy_cuda_func
+if torch.cuda.is_available():
+    from .cuda._wrapper import _make_lazy_cuda_func
+else:
+    # MPS backend doesn't have native CUDA functions; relocation requires native extension
+    def _make_lazy_cuda_func(name):
+        def _not_available(*args, **kwargs):
+            raise RuntimeError(
+                f"gsplat native function '{name}' is not available on MPS. "
+                "Relocation requires the CUDA backend."
+            )
+        return _not_available
 
 
 def compute_relocation(

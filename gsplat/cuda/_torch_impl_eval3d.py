@@ -39,7 +39,7 @@ from ._torch_cameras import (
     _BaseCameraModel,
     _viewmat_to_pose,
 )
-from ._wrapper import RollingShutterType
+from gsplat._types import RollingShutterType
 from ._constants import (
     ALPHA_THRESHOLD,
     TRANSMITTANCE_THRESHOLD,

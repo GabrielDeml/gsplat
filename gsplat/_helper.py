@@ -155,11 +155,13 @@ def assert_shape(name: str, t: torch.Tensor, shape: tuple):
             f"{name} must have rank {len(shape)} like {shape}, got {t.shape}"
         )
 
-    try:
-        torch.broadcast_shapes(t.shape, shape)
-        return True
-    except Exception:
-        raise ValueError(f"{name} must have shape {shape}, got {t.shape}")
+    for i, (got, expected) in enumerate(zip(t.shape, shape)):
+        if got != expected and got != 1 and expected != 1:
+            raise ValueError(
+                f"{name} must have shape {shape}, got {tuple(t.shape)} "
+                f"(mismatch at dim {i}: {got} vs {expected})"
+            )
+    return True
 
 
 def assert_close(

@@ -40,10 +40,13 @@ from gsplat._helper import (
 )
 import gsplat
 
-from gsplat.cuda._backend import _C
+if torch.cuda.is_available():
+    from gsplat.cuda._backend import _C
+else:
+    from gsplat.mps._backend import _C  # _backend differs per device
 
 if _C is None:
-    pytest.skip("gsplat CUDA extension not available", allow_module_level=True)
+    pytest.skip("gsplat CUDA/MPS extension not available", allow_module_level=True)
 
 from gsplat._helper import (
     load_test_data,
@@ -51,21 +54,34 @@ from gsplat._helper import (
     assert_mismatch_ratio,
 )
 
-from gsplat.cuda._wrapper import (
-    CameraModel,
-    RollingShutterType,
-    UnscentedTransformParameters,
-    _make_lazy_cuda_cls,
-    has_camera_wrappers,
-    create_camera_model,
-)
 from gsplat.cuda._math import _safe_normalize
 from gsplat.cuda._torch_cameras import _viewmat_to_pose
 from gsplat.cuda._constants import ALPHA_THRESHOLD
-from tests.test_cameras import parse_lidar_camera
 from gsplat.cuda._torch_impl_lidar import ANGLE_TO_PIXEL_SCALING_FACTOR
+if torch.cuda.is_available():
+    from gsplat.cuda._wrapper import (
+        CameraModel,
+        RollingShutterType,
+        UnscentedTransformParameters,
+        _make_lazy_cuda_cls,
+        has_camera_wrappers,
+        create_camera_model,
+    )
+else:
+    from gsplat.mps._wrapper import (
+        CameraModel,
+        RollingShutterType,
+        UnscentedTransformParameters,
+        _make_lazy_cuda_cls,
+        has_camera_wrappers,
+        create_camera_model,
+    )
+from tests.test_cameras import parse_lidar_camera
 
-device = torch.device("cuda:0")
+device = torch.device("cuda:0") if torch.cuda.is_available() else (
+    torch.device("mps") if hasattr(torch.backends, "mps") and torch.backends.mps.is_available() else torch.device("cpu")
+)
+_gpu_available = torch.cuda.is_available() or (hasattr(torch.backends, "mps") and torch.backends.mps.is_available())
 
 
 def expand(data: dict, batch_dims: Tuple[int, ...]):
@@ -110,13 +126,16 @@ def test_data():
     }
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+@pytest.mark.skipif(not _gpu_available, reason="No GPU device")
 @pytest.mark.skipif(not gsplat.has_3dgs(), reason="3DGS support isn't built in")
 @pytest.mark.parametrize("triu", [False, True])
 @pytest.mark.parametrize("batch_dims", [(), (2,), (1, 2)])
 def test_quat_scale_to_covar_preci(test_data, triu: bool, batch_dims: Tuple[int, ...]):
     from gsplat.cuda._math import _quat_scale_to_covar_preci
-    from gsplat.cuda._wrapper import quat_scale_to_covar_preci
+    if torch.cuda.is_available():
+        from gsplat.cuda._wrapper import quat_scale_to_covar_preci
+    else:
+        from gsplat.mps._wrapper import quat_scale_to_covar_preci
 
     torch.manual_seed(42)
 
@@ -152,7 +171,7 @@ def test_quat_scale_to_covar_preci(test_data, triu: bool, batch_dims: Tuple[int,
     torch.testing.assert_close(v_scales, _v_scales, rtol=1e0, atol=1e-1)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+@pytest.mark.skipif(not _gpu_available, reason="No GPU device")
 @pytest.mark.skipif(not gsplat.has_3dgs(), reason="3DGS support isn't built in")
 @pytest.mark.parametrize("camera_model", ["pinhole", "ortho", "fisheye"])
 @pytest.mark.parametrize("batch_dims", [(), (2,), (1, 2)])
@@ -167,7 +186,10 @@ def test_proj(
         _persp_proj,
         _world_to_cam,
     )
-    from gsplat.cuda._wrapper import proj, quat_scale_to_covar_preci
+    if torch.cuda.is_available():
+        from gsplat.cuda._wrapper import proj, quat_scale_to_covar_preci
+    else:
+        from gsplat.mps._wrapper import proj, quat_scale_to_covar_preci
 
     torch.manual_seed(42)
 
@@ -211,7 +233,7 @@ def test_proj(
     torch.testing.assert_close(v_covars, _v_covars, rtol=1e-1, atol=1e-1)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+@pytest.mark.skipif(not _gpu_available, reason="No GPU device")
 @pytest.mark.skipif(not gsplat.has_3dgs(), reason="3DGS support isn't built in")
 @pytest.mark.parametrize("camera_model", ["pinhole", "ortho", "fisheye"])
 @pytest.mark.parametrize("fused", [False, True])
@@ -225,7 +247,10 @@ def test_projection(
     batch_dims: Tuple[int, ...],
 ):
     from gsplat.cuda._torch_impl import _fully_fused_projection
-    from gsplat.cuda._wrapper import fully_fused_projection, quat_scale_to_covar_preci
+    if torch.cuda.is_available():
+        from gsplat.cuda._wrapper import fully_fused_projection, quat_scale_to_covar_preci
+    else:
+        from gsplat.mps._wrapper import fully_fused_projection, quat_scale_to_covar_preci
 
     torch.manual_seed(42)
 
@@ -324,7 +349,7 @@ def test_projection(
     torch.testing.assert_close(v_means, _v_means, rtol=1e-2, atol=6e-2)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+@pytest.mark.skipif(not _gpu_available, reason="No GPU device")
 @pytest.mark.skipif(not gsplat.has_3dgs(), reason="3DGS support isn't built in")
 @pytest.mark.parametrize("fused", [False, True])
 @pytest.mark.parametrize("sparse_grad", [False])
@@ -339,7 +364,10 @@ def test_fully_fused_projection_packed(
     camera_model: CameraModel,
     batch_dims: Tuple[int, ...],
 ):
-    from gsplat.cuda._wrapper import fully_fused_projection, quat_scale_to_covar_preci
+    if torch.cuda.is_available():
+        from gsplat.cuda._wrapper import fully_fused_projection, quat_scale_to_covar_preci
+    else:
+        from gsplat.mps._wrapper import fully_fused_projection, quat_scale_to_covar_preci
 
     torch.manual_seed(42)
 
@@ -504,7 +532,7 @@ def test_fully_fused_projection_packed(
 
 
 @pytest.mark.skipif(
-    not torch.cuda.is_available(), reason="CUDA required for UT projection"
+    not _gpu_available, reason="GPU required for UT projection"
 )
 @pytest.mark.skipif(not gsplat.has_3dgut(), reason="3DGUT support isn't built in")
 @pytest.mark.parametrize("batch_dims", [(), (2,), (1, 2)])
@@ -532,7 +560,10 @@ def test_fully_fused_projection_ut(
         rolling_shutter: Rolling shutter mode (GLOBAL, ROLLING_*, etc.)
     """
     from gsplat.cuda._torch_impl_ut import _fully_fused_projection_with_ut
-    from gsplat.cuda._wrapper import fully_fused_projection_with_ut
+    if torch.cuda.is_available():
+        from gsplat.cuda._wrapper import fully_fused_projection_with_ut
+    else:
+        from gsplat.mps._wrapper import fully_fused_projection_with_ut
 
     # Expand test data to batch dimensions
     test_data = expand(test_data, batch_dims)
@@ -692,12 +723,15 @@ def test_fully_fused_projection_ut(
     )
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+@pytest.mark.skipif(not _gpu_available, reason="No GPU device")
 @pytest.mark.skipif(not gsplat.has_3dgut(), reason="3DGUT/Lidar support isn't built in")
 @pytest.mark.parametrize("batch_dims", [(), (2,), (1, 2)])
 def test_isect(test_data, batch_dims: Tuple[int, ...]):
     from gsplat.cuda._torch_impl import _isect_offset_encode, _isect_tiles
-    from gsplat.cuda._wrapper import isect_offset_encode, isect_tiles
+    if torch.cuda.is_available():
+        from gsplat.cuda._wrapper import isect_offset_encode, isect_tiles
+    else:
+        from gsplat.mps._wrapper import isect_offset_encode, isect_tiles
 
     torch.manual_seed(42)
 
@@ -736,7 +770,7 @@ def test_isect(test_data, batch_dims: Tuple[int, ...]):
     torch.testing.assert_close(isect_offsets, _isect_offsets)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+@pytest.mark.skipif(not _gpu_available, reason="No GPU device")
 @pytest.mark.skipif(not gsplat.has_3dgut(), reason="3DGUT/Lidar support isn't built in")
 @pytest.mark.parametrize("batch_dims", [(), (2,), (1, 2)])
 @pytest.mark.parametrize("lidar_model", ["pandar128", "at128"])
@@ -745,7 +779,10 @@ def test_isect_lidar(lidar_model, batch_dims: Tuple[int, ...]):
         _isect_tiles_lidar,
         ANGLE_TO_PIXEL_SCALING_FACTOR,
     )
-    from gsplat.cuda._wrapper import isect_offset_encode, isect_tiles_lidar
+    if torch.cuda.is_available():
+        from gsplat.cuda._wrapper import isect_offset_encode, isect_tiles_lidar
+    else:
+        from gsplat.mps._wrapper import isect_offset_encode, isect_tiles_lidar
 
     torch.manual_seed(42)
 
@@ -1057,7 +1094,7 @@ def gaussian_param(lidar_param, gauss_start_pos, gauss_end_pos):
     )
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+@pytest.mark.skipif(not _gpu_available, reason="No GPU device")
 @pytest.mark.parametrize(
     # Verifies that isect_tiles_lidar (CUDA) and _isect_tiles_lidar (Python ref)
     # agree on the number of tiles intersected by a single Gaussian at the
@@ -1892,8 +1929,11 @@ def test_isect_lidar_corner_cases(
     expected_tiles: int,
 ):
     from gsplat.cuda._torch_impl_lidar import _isect_tiles_lidar
-    from gsplat.cuda._wrapper import isect_tiles_lidar
     from gsplat.cuda._lidar import relative_angle
+    if torch.cuda.is_available():
+        from gsplat.cuda._wrapper import isect_tiles_lidar
+    else:
+        from gsplat.mps._wrapper import isect_tiles_lidar
 
     # Convenient aliases
     lidar = lidar_param
@@ -1947,19 +1987,28 @@ def test_isect_lidar_corner_cases(
         assert flatten_ids.numel() == 0
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+@pytest.mark.skipif(not _gpu_available, reason="No GPU device")
 @pytest.mark.skipif(not gsplat.has_3dgs(), reason="3DGS support isn't built in")
 @pytest.mark.parametrize("channels", [3, 32, 128])
 @pytest.mark.parametrize("batch_dims", [(), (2,), (1, 2)])
 def test_rasterize_to_pixels(test_data, channels: int, batch_dims: Tuple[int, ...]):
     from gsplat.cuda._torch_impl import _rasterize_to_pixels
-    from gsplat.cuda._wrapper import (
-        fully_fused_projection,
-        isect_offset_encode,
-        isect_tiles,
-        quat_scale_to_covar_preci,
-        rasterize_to_pixels,
-    )
+    if torch.cuda.is_available():
+        from gsplat.cuda._wrapper import (
+            fully_fused_projection,
+            isect_offset_encode,
+            isect_tiles,
+            quat_scale_to_covar_preci,
+            rasterize_to_pixels,
+        )
+    else:
+        from gsplat.mps._wrapper import (
+            fully_fused_projection,
+            isect_offset_encode,
+            isect_tiles,
+            quat_scale_to_covar_preci,
+            rasterize_to_pixels,
+        )
 
     torch.manual_seed(42)
 
@@ -2118,7 +2167,7 @@ def _pixel_ray_dir_pinhole(
     return d / torch.linalg.norm(d)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+@pytest.mark.skipif(not _gpu_available, reason="No GPU device")
 @pytest.mark.skipif(not gsplat.has_3dgut(), reason="3DGUT support isn't built in")
 @pytest.mark.parametrize(
     "means_list,quats_choice,scales_list,pixel_dx,pixel_dy",
@@ -2170,12 +2219,20 @@ def test_rasterize_to_pixels_hit_distance_principal_axis(
     length(scale * grd * hit_t) with hit_t = dot(grd, -gro). Includes center and off-center
     pixels. Failures indicate the rasterization hit-distance code should be analyzed and fixed.
     """
-    from gsplat.cuda._wrapper import (
-        fully_fused_projection_with_ut,
-        isect_offset_encode,
-        isect_tiles,
-        rasterize_to_pixels_eval3d_extra,
-    )
+    if torch.cuda.is_available():
+        from gsplat.cuda._wrapper import (
+            fully_fused_projection_with_ut,
+            isect_offset_encode,
+            isect_tiles,
+            rasterize_to_pixels_eval3d_extra,
+        )
+    else:
+        from gsplat.mps._wrapper import (
+            fully_fused_projection_with_ut,
+            isect_offset_encode,
+            isect_tiles,
+            rasterize_to_pixels_eval3d_extra,
+        )
 
     width = height = 32
     tile_size = 16
@@ -2279,7 +2336,7 @@ def test_rasterize_to_pixels_hit_distance_principal_axis(
 
 # Since we have comprehensive camera model tests, we don't need to add
 # a camera model axis to this test. We use perfect pinhole model instead.
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+@pytest.mark.skipif(not _gpu_available, reason="No GPU device")
 @pytest.mark.skipif(not gsplat.has_3dgut(), reason="3DGUT support isn't built in")
 @pytest.mark.parametrize(
     "channels,batch_dims,rs_type,use_hit_distance,use_rays,return_normals,camera_model",
@@ -2330,15 +2387,26 @@ def test_rasterize_to_pixels_eval3d(
     camera_model: CameraModel,
 ):
     from gsplat.cuda._torch_impl_eval3d import _rasterize_to_pixels_eval3d
-    from gsplat.cuda._wrapper import (
-        fully_fused_projection_with_ut,
-        isect_offset_encode,
-        isect_tiles,
-        isect_tiles_lidar,
-        quat_scale_to_covar_preci,
-        rasterize_to_pixels_eval3d_extra,
-        RollingShutterType,
-    )
+    if torch.cuda.is_available():
+        from gsplat.cuda._wrapper import (
+            fully_fused_projection_with_ut,
+            isect_offset_encode,
+            isect_tiles,
+            isect_tiles_lidar,
+            quat_scale_to_covar_preci,
+            rasterize_to_pixels_eval3d_extra,
+            RollingShutterType,
+        )
+    else:
+        from gsplat.mps._wrapper import (
+            fully_fused_projection_with_ut,
+            isect_offset_encode,
+            isect_tiles,
+            isect_tiles_lidar,
+            quat_scale_to_covar_preci,
+            rasterize_to_pixels_eval3d_extra,
+            RollingShutterType,
+        )
 
     N = test_data["means"].shape[-2]  # number of Gaussians
     C = test_data["viewmats"].shape[-3]  # number of cameras
@@ -2897,12 +2965,15 @@ def test_rasterize_to_pixels_eval3d(
         )
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+@pytest.mark.skipif(not _gpu_available, reason="No GPU device")
 @pytest.mark.parametrize("sh_degree", [0, 1, 2, 3, 4])
 @pytest.mark.parametrize("batch_dims", [(), (2,), (1, 2)])
 def test_sh(test_data, sh_degree: int, batch_dims: Tuple[int, ...]):
     from gsplat.cuda._torch_impl import _spherical_harmonics
-    from gsplat.cuda._wrapper import spherical_harmonics
+    if torch.cuda.is_available():
+        from gsplat.cuda._wrapper import spherical_harmonics
+    else:
+        from gsplat.mps._wrapper import spherical_harmonics
 
     torch.manual_seed(42)
 
@@ -2941,11 +3012,18 @@ def test_sh(test_data, sh_degree: int, batch_dims: Tuple[int, ...]):
 
 def _render_alpha(data, quats, scales, means2d, radii, depths):
     """Render the scene and return the per-pixel alpha tensor."""
-    from gsplat.cuda._wrapper import (
-        isect_offset_encode,
-        isect_tiles,
-        rasterize_to_pixels_eval3d_extra,
-    )
+    if torch.cuda.is_available():
+        from gsplat.cuda._wrapper import (
+            isect_offset_encode,
+            isect_tiles,
+            rasterize_to_pixels_eval3d_extra,
+        )
+    else:
+        from gsplat.mps._wrapper import (
+            isect_offset_encode,
+            isect_tiles,
+            rasterize_to_pixels_eval3d_extra,
+        )
 
     N = data["means"].shape[0]
     C = data["viewmats"].shape[0]
@@ -3031,7 +3109,7 @@ def nan_test_data():
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+@pytest.mark.skipif(not _gpu_available, reason="No GPU device")
 @pytest.mark.skipif(not gsplat.has_3dgut(), reason="3DGUT support isn't built in")
 def test_ut_params_invalid_kappa_rejected():
     """kappa < -D makes sqrt(D + lambda) produce NaN.  The constructor must reject it."""
@@ -3039,7 +3117,7 @@ def test_ut_params_invalid_kappa_rejected():
         UnscentedTransformParameters(alpha=0.1, kappa=-4.0)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+@pytest.mark.skipif(not _gpu_available, reason="No GPU device")
 @pytest.mark.skipif(not gsplat.has_3dgut(), reason="3DGUT support isn't built in")
 def test_ut_params_valid_accepted():
     """Default and typical UT parameters must be accepted without error."""
@@ -3053,7 +3131,7 @@ def test_ut_params_valid_accepted():
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+@pytest.mark.skipif(not _gpu_available, reason="No GPU device")
 @pytest.mark.skipif(not gsplat.has_3dgut(), reason="3DGUT support isn't built in")
 def test_projection_ut_zero_quaternion(nan_test_data):
     """A zero-quaternion Gaussian must be culled (radii=0).
@@ -3065,8 +3143,11 @@ def test_projection_ut_zero_quaternion(nan_test_data):
     fminf(MAX_ALPHA, opacity * NaN) = MAX_ALPHA.  A single Gaussian with
     opacity=0.1 renders alpha=0.99 — an impossible value.
     """
-    from gsplat.cuda._wrapper import fully_fused_projection_with_ut
     from gsplat.cuda._torch_impl_ut import _fully_fused_projection_with_ut
+    if torch.cuda.is_available():
+        from gsplat.cuda._wrapper import fully_fused_projection_with_ut
+    else:
+        from gsplat.mps._wrapper import fully_fused_projection_with_ut
 
     data = nan_test_data
     N = data["means"].shape[0]
@@ -3154,7 +3235,7 @@ def test_projection_ut_zero_quaternion(nan_test_data):
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+@pytest.mark.skipif(not _gpu_available, reason="No GPU device")
 @pytest.mark.skipif(not gsplat.has_3dgut(), reason="3DGUT support isn't built in")
 def test_projection_ut_zero_scale_single_axis(nan_test_data):
     """A Gaussian with a single zero-scale axis must be culled (radii=0).
@@ -3165,8 +3246,11 @@ def test_projection_ut_zero_scale_single_axis(nan_test_data):
     under --use_fast_math, fminf(MAX_ALPHA, opacity * NaN) = MAX_ALPHA.
     A single Gaussian with opacity=0.1 renders alpha=0.99 — impossible.
     """
-    from gsplat.cuda._wrapper import fully_fused_projection_with_ut
     from gsplat.cuda._torch_impl_ut import _fully_fused_projection_with_ut
+    if torch.cuda.is_available():
+        from gsplat.cuda._wrapper import fully_fused_projection_with_ut
+    else:
+        from gsplat.mps._wrapper import fully_fused_projection_with_ut
 
     data = nan_test_data
     N = data["means"].shape[0]
@@ -3252,7 +3336,7 @@ def test_projection_ut_zero_scale_single_axis(nan_test_data):
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+@pytest.mark.skipif(not _gpu_available, reason="No GPU device")
 @pytest.mark.skipif(not gsplat.has_3dgut(), reason="3DGUT support isn't built in")
 def test_rasterize_eval3d_degenerate_gaussians_culled(nan_test_data):
     """End-to-end: degenerate Gaussians (zero quat, zero scale) must be
@@ -3266,13 +3350,21 @@ def test_rasterize_eval3d_degenerate_gaussians_culled(nan_test_data):
     Compares CUDA rasterization against reference to verify they agree on the
     rendered image when degenerate Gaussians are present.
     """
-    from gsplat.cuda._wrapper import (
-        fully_fused_projection_with_ut,
-        isect_offset_encode,
-        isect_tiles,
-        rasterize_to_pixels_eval3d_extra,
-    )
     from gsplat.cuda._torch_impl_eval3d import _rasterize_to_pixels_eval3d
+    if torch.cuda.is_available():
+        from gsplat.cuda._wrapper import (
+            fully_fused_projection_with_ut,
+            isect_offset_encode,
+            isect_tiles,
+            rasterize_to_pixels_eval3d_extra,
+        )
+    else:
+        from gsplat.mps._wrapper import (
+            fully_fused_projection_with_ut,
+            isect_offset_encode,
+            isect_tiles,
+            rasterize_to_pixels_eval3d_extra,
+        )
 
     data = nan_test_data
     N = data["means"].shape[0]
@@ -3381,7 +3473,7 @@ def test_rasterize_eval3d_degenerate_gaussians_culled(nan_test_data):
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+@pytest.mark.skipif(not _gpu_available, reason="No GPU device")
 @pytest.mark.skipif(not gsplat.has_3dgut(), reason="3DGUT support isn't built in")
 def test_projection_ut_python_ref_no_nan(nan_test_data):
     """CUDA and Python ref must agree on degenerate inputs, with no NaN.
@@ -3390,8 +3482,11 @@ def test_projection_ut_python_ref_no_nan(nan_test_data):
     Without the fix, torch.sqrt(cov_diag) on a negative diagonal produces NaN,
     and torch.linalg.inv on a singular covariance produces NaN/inf.
     """
-    from gsplat.cuda._wrapper import fully_fused_projection_with_ut
     from gsplat.cuda._torch_impl_ut import _fully_fused_projection_with_ut
+    if torch.cuda.is_available():
+        from gsplat.cuda._wrapper import fully_fused_projection_with_ut
+    else:
+        from gsplat.mps._wrapper import fully_fused_projection_with_ut
 
     data = nan_test_data
     quats = data["quats"].clone()
@@ -3450,7 +3545,7 @@ def test_projection_ut_python_ref_no_nan(nan_test_data):
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+@pytest.mark.skipif(not _gpu_available, reason="No GPU device")
 @pytest.mark.skipif(not gsplat.has_3dgut(), reason="3DGUT support isn't built in")
 def test_backward_high_opacity_no_nan():
     """Backward pass must produce finite gradients when alpha approaches 1.0.
@@ -3477,13 +3572,21 @@ def test_backward_high_opacity_no_nan():
         by the parametrized ``test_rasterize`` gradient-correctness tests.
         # TODO: add dedicated high-opacity tests for 3DGS/2DGS paths.
     """
-    from gsplat.cuda._wrapper import (
-        fully_fused_projection_with_ut,
-        isect_offset_encode,
-        isect_tiles,
-        rasterize_to_pixels_eval3d_extra,
-    )
     from gsplat.cuda._torch_impl_eval3d import _rasterize_to_pixels_eval3d
+    if torch.cuda.is_available():
+        from gsplat.cuda._wrapper import (
+            fully_fused_projection_with_ut,
+            isect_offset_encode,
+            isect_tiles,
+            rasterize_to_pixels_eval3d_extra,
+        )
+    else:
+        from gsplat.mps._wrapper import (
+            fully_fused_projection_with_ut,
+            isect_offset_encode,
+            isect_tiles,
+            rasterize_to_pixels_eval3d_extra,
+        )
 
     torch.manual_seed(123)
     N = 16

@@ -21,7 +21,10 @@ import torch
 from typing_extensions import Tuple
 import gsplat
 
-device = torch.device("cuda:0")
+device = torch.device("cuda:0") if torch.cuda.is_available() else (
+    torch.device("mps") if hasattr(torch.backends, "mps") and torch.backends.mps.is_available() else torch.device("cpu")
+)
+_gpu_available = torch.cuda.is_available() or (hasattr(torch.backends, "mps") and torch.backends.mps.is_available())
 
 
 def expand(data: dict, batch_dims: Tuple[int, ...]):
@@ -70,12 +73,15 @@ def test_data():
     }
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+@pytest.mark.skipif(not _gpu_available, reason="No GPU device")
 @pytest.mark.skipif(not gsplat.has_2dgs(), reason="2DGS support wasn't built")
 @pytest.mark.parametrize("batch_dims", [(), (2,), (1, 2)])
 def test_projection_2dgs(test_data, batch_dims: Tuple[int, ...]):
     from gsplat.cuda._torch_impl_2dgs import _fully_fused_projection_2dgs
-    from gsplat.cuda._wrapper import fully_fused_projection_2dgs
+    if torch.cuda.is_available():
+        from gsplat.cuda._wrapper import fully_fused_projection_2dgs
+    else:
+        from gsplat.mps._wrapper import fully_fused_projection_2dgs
 
     torch.manual_seed(42)
 
@@ -141,14 +147,17 @@ def test_projection_2dgs(test_data, batch_dims: Tuple[int, ...]):
     torch.testing.assert_close(v_means, _v_means, rtol=1e-2, atol=6e-2)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+@pytest.mark.skipif(not _gpu_available, reason="No GPU device")
 @pytest.mark.skipif(not gsplat.has_2dgs(), reason="2DGS support wasn't built")
 @pytest.mark.parametrize("sparse_grad", [False])
 @pytest.mark.parametrize("batch_dims", [(), (2,), (1, 2)])
 def test_fully_fused_projection_packed_2dgs(
     test_data, sparse_grad: bool, batch_dims: Tuple[int, ...]
 ):
-    from gsplat.cuda._wrapper import fully_fused_projection_2dgs
+    if torch.cuda.is_available():
+        from gsplat.cuda._wrapper import fully_fused_projection_2dgs
+    else:
+        from gsplat.mps._wrapper import fully_fused_projection_2dgs
 
     torch.manual_seed(42)
 
@@ -266,7 +275,7 @@ def test_fully_fused_projection_packed_2dgs(
     torch.testing.assert_close(v_quats, _v_quats, rtol=1e-2, atol=1e-2)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+@pytest.mark.skipif(not _gpu_available, reason="No GPU device")
 @pytest.mark.skipif(not gsplat.has_2dgs(), reason="2DGS support wasn't built")
 @pytest.mark.parametrize("channels", [3, 31])
 @pytest.mark.parametrize("batch_dims", [(), (2,), (1, 2)])
@@ -274,12 +283,20 @@ def test_rasterize_to_pixels_2dgs(
     test_data, channels: int, batch_dims: Tuple[int, ...]
 ):
     from gsplat.cuda._torch_impl_2dgs import _rasterize_to_pixels_2dgs
-    from gsplat.cuda._wrapper import (
-        fully_fused_projection_2dgs,
-        isect_offset_encode,
-        isect_tiles,
-        rasterize_to_pixels_2dgs,
-    )
+    if torch.cuda.is_available():
+        from gsplat.cuda._wrapper import (
+            fully_fused_projection_2dgs,
+            isect_offset_encode,
+            isect_tiles,
+            rasterize_to_pixels_2dgs,
+        )
+    else:
+        from gsplat.mps._wrapper import (
+            fully_fused_projection_2dgs,
+            isect_offset_encode,
+            isect_tiles,
+            rasterize_to_pixels_2dgs,
+        )
 
     torch.manual_seed(42)
 

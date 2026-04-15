@@ -16,39 +16,84 @@
 
 import warnings
 
+import torch
+
 from .color_correct import color_correct_affine, color_correct_quadratic
 from .compression import PngCompression
+
+# Device-agnostic imports (safe on any backend — no CUDA loading triggered)
 from .cuda._torch_impl import accumulate
 from .cuda._torch_impl_2dgs import accumulate_2dgs
-from .cuda._wrapper import (
-    CameraModel,
-    ExternalDistortionModelMeta,
-    ExternalDistortionModelParameters,
-    RollingShutterType,
-    fully_fused_projection,
-    fully_fused_projection_2dgs,
-    fully_fused_projection_with_ut,
-    isect_offset_encode,
-    isect_tiles,
-    isect_tiles_lidar,
-    proj,
-    quat_scale_to_covar_preci,
-    rasterize_to_indices_in_range,
-    rasterize_to_indices_in_range_2dgs,
-    rasterize_to_pixels,
-    rasterize_to_pixels_2dgs,
-    rasterize_to_pixels_eval3d,
-    spherical_harmonics,
-    world_to_cam,
-    has_2dgs,
-    has_3dgs,
-    has_3dgut,
-    has_adam,
-    has_camera_wrappers,
-    has_reloc,
-    RowOffsetStructuredSpinningLidarModelParameters,
-    RowOffsetStructuredSpinningLidarModelParametersExt,
+from .cuda._lidar import (
+    compute_angles_to_columns_map as compute_lidar_angles_to_columns_map,
+    LidarTiling,
+    SpinningDirection,
+    compute_tiling as compute_lidar_tiling,
 )
+
+# Auto-detect backend: CUDA > MPS/CPU
+# Only _wrapper differs — it routes to either CUDA kernels or PyTorch fallbacks.
+if torch.cuda.is_available():
+    from .cuda._wrapper import (
+        CameraModel,
+        ExternalDistortionModelMeta,
+        ExternalDistortionModelParameters,
+        RollingShutterType,
+        fully_fused_projection,
+        fully_fused_projection_2dgs,
+        fully_fused_projection_with_ut,
+        isect_offset_encode,
+        isect_tiles,
+        isect_tiles_lidar,
+        proj,
+        quat_scale_to_covar_preci,
+        rasterize_to_indices_in_range,
+        rasterize_to_indices_in_range_2dgs,
+        rasterize_to_pixels,
+        rasterize_to_pixels_2dgs,
+        rasterize_to_pixels_eval3d,
+        spherical_harmonics,
+        world_to_cam,
+        has_2dgs,
+        has_3dgs,
+        has_3dgut,
+        has_adam,
+        has_camera_wrappers,
+        has_reloc,
+        RowOffsetStructuredSpinningLidarModelParameters,
+        RowOffsetStructuredSpinningLidarModelParametersExt,
+    )
+else:
+    from .mps._wrapper import (
+        CameraModel,
+        ExternalDistortionModelMeta,
+        ExternalDistortionModelParameters,
+        RollingShutterType,
+        fully_fused_projection,
+        fully_fused_projection_2dgs,
+        fully_fused_projection_with_ut,
+        isect_offset_encode,
+        isect_tiles,
+        isect_tiles_lidar,
+        proj,
+        quat_scale_to_covar_preci,
+        rasterize_to_indices_in_range,
+        rasterize_to_indices_in_range_2dgs,
+        rasterize_to_pixels,
+        rasterize_to_pixels_2dgs,
+        rasterize_to_pixels_eval3d,
+        spherical_harmonics,
+        world_to_cam,
+        has_2dgs,
+        has_3dgs,
+        has_3dgut,
+        has_adam,
+        has_camera_wrappers,
+        has_reloc,
+        RowOffsetStructuredSpinningLidarModelParameters,
+        RowOffsetStructuredSpinningLidarModelParametersExt,
+    )
+
 from .exporter import export_splats
 from .optimizers import SelectiveAdam
 from .rendering import (
@@ -61,12 +106,6 @@ from .rendering import (
 )
 from .strategy import DefaultStrategy, MCMCStrategy, Strategy
 from .version import __version__
-from .cuda._lidar import (
-    compute_angles_to_columns_map as compute_lidar_angles_to_columns_map,
-    LidarTiling,
-    SpinningDirection,
-    compute_tiling as compute_lidar_tiling,
-)
 
 all = [
     "color_correct_affine",

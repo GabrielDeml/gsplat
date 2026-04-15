@@ -31,11 +31,7 @@ import pytest
 import torch
 
 import gsplat
-from gsplat.cuda._wrapper import (
-    BivariateWindshieldModelParameters,
-    _make_lazy_cuda_func,
-    ExternalDistortionReferencePolynomial,
-)
+
 from gsplat.cuda._torch_external_distortion import (  # PyTorch reference
     ref_compute_order,
     ref_eval_bivariate_poly,
@@ -46,8 +42,23 @@ from gsplat.cuda._torch_external_distortion import (  # PyTorch reference
     make_zero_poly,
     make_params,
 )
+if torch.cuda.is_available():
+    from gsplat.cuda._wrapper import (
+        BivariateWindshieldModelParameters,
+        _make_lazy_cuda_func,
+        ExternalDistortionReferencePolynomial,
+    )
+else:
+    from gsplat.mps._wrapper import (
+        BivariateWindshieldModelParameters,
+        _make_lazy_cuda_func,
+        ExternalDistortionReferencePolynomial,
+    )
 
-device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
+device = torch.device("cuda:0") if torch.cuda.is_available() else (
+    torch.device("mps") if hasattr(torch.backends, "mps") and torch.backends.mps.is_available() else torch.device("cpu")
+)
+_gpu_available = torch.cuda.is_available() or (hasattr(torch.backends, "mps") and torch.backends.mps.is_available())
 
 # ===========================================================================
 # Helper functions
@@ -147,7 +158,7 @@ class TestParameterConstruction:
         expected = num_coeffs_for_order(BivariateWindshieldModelParameters.MAX_ORDER)
         assert BivariateWindshieldModelParameters.MAX_COEFFS == expected
 
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+    @pytest.mark.skipif(not _gpu_available, reason="No GPU device")
     def test_construct_order1(self):
         params = make_params(
             h_poly=make_identity_horizontal_poly(),
@@ -157,7 +168,7 @@ class TestParameterConstruction:
         assert params.vertical_poly.shape == (3,)
         assert params.reference_poly == ExternalDistortionReferencePolynomial.FORWARD
 
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+    @pytest.mark.skipif(not _gpu_available, reason="No GPU device")
     def test_construct_order5(self):
         """Construct with maximum order (5) polynomials."""
         n = num_coeffs_for_order(5)
@@ -169,7 +180,7 @@ class TestParameterConstruction:
         assert params.horizontal_poly.shape == (21,)
         assert params.vertical_poly.shape == (21,)
 
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+    @pytest.mark.skipif(not _gpu_available, reason="No GPU device")
     def test_construct_all_orders(self):
         """Ensure we can construct parameters for every valid order 0..5."""
         for order in range(BivariateWindshieldModelParameters.MAX_ORDER + 1):
@@ -180,7 +191,7 @@ class TestParameterConstruction:
             )
             assert params.horizontal_poly.shape == (n,)
 
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+    @pytest.mark.skipif(not _gpu_available, reason="No GPU device")
     def test_reference_poly_forward(self):
         params = make_params(
             h_poly=make_identity_horizontal_poly(),
@@ -189,7 +200,7 @@ class TestParameterConstruction:
         )
         assert params.reference_poly == ExternalDistortionReferencePolynomial.FORWARD
 
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+    @pytest.mark.skipif(not _gpu_available, reason="No GPU device")
     def test_reference_poly_backward(self):
         params = make_params(
             h_poly=make_identity_horizontal_poly(),
@@ -198,7 +209,7 @@ class TestParameterConstruction:
         )
         assert params.reference_poly == ExternalDistortionReferencePolynomial.BACKWARD
 
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+    @pytest.mark.skipif(not _gpu_available, reason="No GPU device")
     def test_params_tensor_shapes(self):
         """Verify constructed params have correct tensor shapes."""
         if not gsplat.has_3dgut():
@@ -213,7 +224,7 @@ class TestParameterConstruction:
         assert params.horizontal_poly.shape == (3,)
         assert params.vertical_poly.shape == (3,)
 
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+    @pytest.mark.skipif(not _gpu_available, reason="No GPU device")
     def test_params_max_order(self):
         """Verify params construction works with maximum-order polynomials."""
         if not gsplat.has_3dgut():
@@ -232,7 +243,7 @@ class TestParameterConstruction:
 # ===========================================================================
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+@pytest.mark.skipif(not _gpu_available, reason="No GPU device")
 class TestBivariatePolyEvaluationCUDA:
     """Test the CUDA eval_bivariate_poly kernel against Python reference."""
 
@@ -320,7 +331,7 @@ class TestBivariatePolyEvaluationCUDA:
 # ===========================================================================
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+@pytest.mark.skipif(not _gpu_available, reason="No GPU device")
 class TestDistortCameraRaysCUDA:
     """Test the CUDA distort_camera_rays kernel against Python reference."""
 
@@ -595,9 +606,12 @@ class TestDistortCameraRaysCUDA:
             math.asin(ratio)
 
         # All boundary rays must produce finite output despite ratio > 1.0
-        with unittest.mock.patch(
-            "gsplat.cuda._torch_external_distortion.math.sqrt", fast_math_sqrt
-        ):
+        _mock_target = (
+            "gsplat.cuda._torch_external_distortion.math.sqrt"
+            if torch.cuda.is_available()
+            else "gsplat.cuda._torch_external_distortion.math.sqrt"
+        )
+        with unittest.mock.patch(_mock_target, fast_math_sqrt):
             for ray in boundary_rays:
                 result = ref_distort_camera_ray(ray, h, v, 1, 1)
                 for j, val in enumerate(result):
@@ -613,7 +627,7 @@ class TestDistortCameraRaysCUDA:
 # ===========================================================================
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+@pytest.mark.skipif(not _gpu_available, reason="No GPU device")
 class TestCameraWithExternalDistortion:
     """Test external distortion integrated into camera models via BaseCameraModel.create()."""
 
@@ -624,7 +638,10 @@ class TestCameraWithExternalDistortion:
 
     @staticmethod
     def _create_pinhole_camera(width=640, height=480, external_distortion_coeffs=None):
-        from gsplat.cuda._wrapper import create_camera_model
+        if torch.cuda.is_available():
+            from gsplat.cuda._wrapper import create_camera_model
+        else:
+            from gsplat.mps._wrapper import create_camera_model
 
         focal_lengths = torch.tensor(
             [[320.0, 320.0]], dtype=torch.float32, device="cuda"
@@ -811,7 +828,7 @@ def test_data():
     }
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+@pytest.mark.skipif(not _gpu_available, reason="No GPU device")
 class TestRenderingWithExternalDistortion:
     """Integration tests: external distortion through the full rendering pipeline."""
 
