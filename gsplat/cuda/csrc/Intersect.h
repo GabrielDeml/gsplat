@@ -41,6 +41,7 @@ void launch_intersect_tile_kernel(
     const uint32_t tile_width,
     const uint32_t tile_height,
     const at::optional<at::Tensor> cum_tiles_per_gauss, // [..., N] or [nnz]
+    const float beta,                                   // FastGS Compact Box scaling factor
     // outputs
     at::optional<at::Tensor> tiles_per_gauss, // [..., N] or [nnz]
     at::optional<at::Tensor> isect_ids,       // [n_isects]

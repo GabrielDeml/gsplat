@@ -152,6 +152,7 @@ __global__ void intersect_tile_kernel(
     const uint32_t tile_height,
     const uint32_t tile_n_bits,
     const uint32_t image_n_bits,
+    const float beta,                      // FastGS Compact Box scaling factor
     int32_t *__restrict__ tiles_per_gauss, // [..., N] or [nnz]
     int64_t *__restrict__ isect_ids,       // [n_isects]
     int32_t *__restrict__ flatten_ids      // [n_isects]
@@ -205,8 +206,10 @@ __global__ void intersect_tile_kernel(
 
         // Opacity-aware isocontour level: alpha = opacity * exp(-0.5 * q) >= ALPHA_THRESHOLD
         // => q <= 2 * ln(opacity / ALPHA_THRESHOLD). Cap at GAUSSIAN_EXTEND^2 (same as the gsplat radius budget).
+        // FastGS Compact Box (arXiv:2511.04283 Suppl. Eq. 15): scale the Mahalanobis cutoff by beta
+        // to tighten the ellipse footprint. beta=1 reproduces AccuTile; beta<1 shrinks tile-Gaussian pairs.
         const float opacity = opacities[idx];
-        float t = fminf(GAUSSIAN_EXTEND * GAUSSIAN_EXTEND, 2.0f * __logf(opacity / ALPHA_THRESHOLD));
+        float t = fminf(GAUSSIAN_EXTEND * GAUSSIAN_EXTEND, beta * 2.0f * __logf(opacity / ALPHA_THRESHOLD));
 
         // SNUGBOX: tight axis-aligned bounding box of the ellipse
         float neg_t_over_disc = -t / disc;
@@ -301,6 +304,7 @@ void launch_intersect_tile_kernel(
     const uint32_t tile_width,
     const uint32_t tile_height,
     const at::optional<at::Tensor> cum_tiles_per_gauss, // [..., N] or [nnz]
+    const float beta,                                   // FastGS Compact Box scaling factor
     // outputs
     at::optional<at::Tensor> tiles_per_gauss, // [..., N] or [nnz]
     at::optional<at::Tensor> isect_ids,       // [n_isects]
@@ -374,6 +378,7 @@ void launch_intersect_tile_kernel(
                     tile_height,
                     tile_n_bits,
                     image_n_bits,
+                    beta,
                     tiles_per_gauss.has_value()
                         ? tiles_per_gauss.value().data_ptr<int32_t>()
                         : nullptr,

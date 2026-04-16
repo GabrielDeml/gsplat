@@ -286,7 +286,8 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> intersect_tile(
     int64_t tile_width,
     int64_t tile_height,
     bool sort,
-    bool segmented
+    bool segmented,
+    double beta
 );
 std::tuple<at::Tensor, at::Tensor, at::Tensor> intersect_tile_lidar(
     const c10::intrusive_ptr<gsplat::RowOffsetStructuredSpinningLidarModelParametersExt> &lidar,

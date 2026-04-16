@@ -43,7 +43,8 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> intersect_tile(
     int64_t tile_width,
     int64_t tile_height,
     bool sort,
-    bool segmented
+    bool segmented,
+    double beta
 ) {
     DEVICE_GUARD(means2d);
     CHECK_INPUT(means2d);
@@ -96,6 +97,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> intersect_tile(
             tile_width,
             tile_height,
             c10::nullopt, // cum_tiles_per_gauss
+            static_cast<float>(beta),
             // outputs
             at::optional<at::Tensor>(tiles_per_gauss),
             c10::nullopt, // isect_ids
@@ -135,6 +137,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> intersect_tile(
             tile_width,
             tile_height,
             cum_tiles_per_gauss,
+            static_cast<float>(beta),
             // outputs
             c10::nullopt, // tiles_per_gauss
             at::optional<at::Tensor>(isect_ids),

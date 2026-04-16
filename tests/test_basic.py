@@ -737,6 +737,69 @@ def test_isect(test_data, batch_dims: Tuple[int, ...]):
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+@pytest.mark.skipif(not gsplat.has_3dgs(), reason="3DGS support isn't built in")
+def test_isect_compact_box():
+    """FastGS Compact Box: beta<1 must monotonically shrink the tile footprint.
+
+    beta=1.0 must also be bit-exact with the default AccuTile behavior (no beta kwarg).
+    """
+    from gsplat.cuda._wrapper import isect_tiles
+
+    torch.manual_seed(0)
+
+    C, N = 2, 500
+    width, height = 128, 96
+    tile_size = 16
+    tile_width = math.ceil(width / tile_size)
+    tile_height = math.ceil(height / tile_size)
+
+    means2d = torch.rand(C, N, 2, device=device) * torch.tensor(
+        [width, height], device=device
+    )
+    depths = torch.rand(C, N, device=device)
+    opacities = torch.rand(C, N, device=device) * 0.9 + 0.05  # in (0.05, 0.95)
+
+    # Build realistic positive-definite inverse 2D covariances (conics).
+    # Σ = R diag(sx^2, sy^2) R^T; conic = Σ^-1 upper triangle (A, B, C).
+    sx = torch.rand(C, N, device=device) * 6.0 + 1.5  # std in pixels
+    sy = torch.rand(C, N, device=device) * 6.0 + 1.5
+    theta = torch.rand(C, N, device=device) * math.pi
+    cos_t, sin_t = torch.cos(theta), torch.sin(theta)
+    inv_sx2, inv_sy2 = 1.0 / (sx * sx), 1.0 / (sy * sy)
+    A = cos_t * cos_t * inv_sx2 + sin_t * sin_t * inv_sy2
+    B = cos_t * sin_t * (inv_sx2 - inv_sy2)
+    Cc = sin_t * sin_t * inv_sx2 + cos_t * cos_t * inv_sy2
+    conics = torch.stack([A, B, Cc], dim=-1).contiguous().float()
+
+    # radii: use a loose 3-sigma upper bound; AccuTile path only reads this for early-out.
+    radius_x = torch.ceil(3.33 * sx).to(torch.int32)
+    radius_y = torch.ceil(3.33 * sy).to(torch.int32)
+    radii = torch.stack([radius_x, radius_y], dim=-1).contiguous()
+
+    # beta=1.0 (explicit) must match the current AccuTile default (no kwarg).
+    tpg_default, _, _ = isect_tiles(
+        means2d, radii, depths, tile_size, tile_width, tile_height,
+        conics=conics, opacities=opacities, sort=False,
+    )
+    tpg_one, _, _ = isect_tiles(
+        means2d, radii, depths, tile_size, tile_width, tile_height,
+        conics=conics, opacities=opacities, sort=False, beta=1.0,
+    )
+    torch.testing.assert_close(tpg_default, tpg_one)
+
+    # beta<1 must shrink per-Gaussian tile counts and the total.
+    tpg_half, _, _ = isect_tiles(
+        means2d, radii, depths, tile_size, tile_width, tile_height,
+        conics=conics, opacities=opacities, sort=False, beta=0.5,
+    )
+    assert torch.all(tpg_half <= tpg_one), "Compact Box with beta<1 must not add tile-Gaussian pairs"
+    assert tpg_half.sum().item() < tpg_one.sum().item(), (
+        "Compact Box with beta=0.5 must strictly reduce total tile-Gaussian pairs "
+        f"(got {tpg_half.sum().item()} vs {tpg_one.sum().item()})"
+    )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
 @pytest.mark.skipif(not gsplat.has_3dgut(), reason="3DGUT/Lidar support isn't built in")
 @pytest.mark.parametrize("batch_dims", [(), (2,), (1, 2)])
 @pytest.mark.parametrize("lidar_model", ["pandar128", "at128"])

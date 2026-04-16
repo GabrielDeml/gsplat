@@ -163,6 +163,10 @@ class Config:
     visible_adam: bool = False
     # Anti-aliasing in rasterization. Might slightly hurt quantitative metrics.
     antialiased: bool = False
+    # FastGS Compact Box scaling factor (arXiv:2511.04283). Scales the Mahalanobis
+    # cutoff on the tile-intersection ellipse: beta=1.0 matches AccuTile exactly;
+    # beta<1.0 tightens each Gaussian's tile footprint for faster rasterization.
+    compact_box_beta: float = 1.0
 
     # Use random background for training to discourage transparency
     random_bkgd: bool = False
@@ -709,6 +713,7 @@ class Runner:
             camera_model=camera_model,
             with_ut=with_ut,
             with_eval3d=self.cfg.with_eval3d,
+            compact_box_beta=self.cfg.compact_box_beta,
             ftheta_coeffs=ftheta_coeffs,
             radial_coeffs=radial_coeffs,
             tangential_coeffs=tangential_coeffs,

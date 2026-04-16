@@ -651,6 +651,7 @@ def isect_tiles(
     opacities: Optional[
         Tensor
     ] = None,  # [..., N] or [nnz], enables AccuTile when provided
+    beta: float = 1.0,  # FastGS Compact Box scaling factor; <1 tightens tile footprint
 ) -> Tuple[Tensor, Tensor, Tensor]:
     """Maps projected Gaussians to intersecting tiles.
 
@@ -672,6 +673,12 @@ def isect_tiles(
         gaussian_ids: The column indices of the projected Gaussians. Required if packed is True.
         conics: Inverse of projected covariances (upper triangle). [..., N, 3] if packed is False, [nnz, 3] if packed is True. Enables AccuTile when provided together with opacities.
         opacities: Gaussian opacities. [..., N] if packed is False, [nnz] if packed is True. Enables AccuTile when provided together with conics.
+        beta: FastGS Compact Box scaling factor (arXiv:2511.04283 Suppl. Eq. 15). Scales the Mahalanobis
+            cutoff on the ellipse footprint: ``(p - mu)^T Sigma^-1 (p - mu) = beta * 2 * ln(opacity / alpha_threshold)``.
+            ``beta=1.0`` (default) reproduces AccuTile exactly. ``beta<1.0`` shrinks the ellipse and
+            reduces tile-Gaussian pairs (accelerating rasterization) at the cost of dropping marginal
+            alpha contributions that would mostly be culled by the per-pixel alpha threshold anyway.
+            Only takes effect in the AccuTile path (i.e. when both ``conics`` and ``opacities`` are provided).
 
     Returns:
         A tuple:
@@ -726,6 +733,7 @@ def isect_tiles(
         tile_height,
         sort,
         segmented,
+        float(beta),
     )
     return tiles_per_gauss, isect_ids, flatten_ids
 

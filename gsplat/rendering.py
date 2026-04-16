@@ -281,6 +281,7 @@ def rasterization(
     distributed: bool = False,
     camera_model: CameraModel = "pinhole",
     segmented: bool = False,
+    compact_box_beta: float = 1.0,
     covars: Optional[Tensor] = None,
     with_ut: bool = False,
     with_eval3d: bool = False,
@@ -467,6 +468,12 @@ def rasterization(
             Segmented radix sort performs sorting in segments, which is more efficient for the sorting operation itself.
             However, since it requires offset indices as input, additional global memory access is needed, which results
             in slower overall performance in most use cases.
+        compact_box_beta: FastGS Compact Box scaling factor (arXiv:2511.04283 Suppl. Eq. 15).
+            Scales the Mahalanobis cutoff used when enumerating tile-Gaussian pairs:
+            ``(p - mu)^T Sigma^-1 (p - mu) = beta * 2 * ln(opacity / alpha_threshold)``.
+            Default ``1.0`` matches the current AccuTile behavior exactly. Values in ``(0, 1)`` tighten
+            each Gaussian's tile footprint, reducing work with negligible quality impact (FastGS reports
+            ~14% training speedup at comparable PSNR). Only active in the AccuTile intersection path.
         covars: Optional covariance matrices of the Gaussians. If provided, the `quats` and
             `scales` will be ignored. [..., N, 3, 3], Default is None.
         with_ut: Whether to use Unscented Transform (UT) for projection. Default is False.
@@ -1086,6 +1093,7 @@ def rasterization(
             gaussian_ids=gaussian_ids,
             conics=None if with_ut else conics,
             opacities=None if with_ut else opacities,
+            beta=compact_box_beta,
         )
 
     # print("rank", world_rank, "Before isect_offset_encode")
@@ -1344,6 +1352,7 @@ def _rasterization(
         Tensor
     ] = None,  # [..., (C,) N, 3] or [..., (C,) N, K, 3] when extra_signals_sh_degree set
     extra_signals_sh_degree: Optional[int] = None,
+    compact_box_beta: float = 1.0,
 ) -> Tuple[Tensor, Tensor, Dict]:
     """A version of rasterization() that utilies on PyTorch's autograd.
 
@@ -1494,6 +1503,7 @@ def _rasterization(
             gaussian_ids=gaussian_ids,
             conics=None if with_ut else conics,
             opacities=None if with_ut else opacities,
+            beta=compact_box_beta,
         )
     isect_offsets = isect_offset_encode(isect_ids, I, tile_width, tile_height)
     isect_offsets = isect_offsets.reshape(batch_dims + (C, tile_height, tile_width))
