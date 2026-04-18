@@ -16,3 +16,4 @@
 from .base import Strategy
 from .default import DefaultStrategy
 from .mcmc import MCMCStrategy
+from .lod_mcmc import LoDMCMCStrategy

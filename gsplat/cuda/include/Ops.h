@@ -257,6 +257,26 @@ std::tuple<at::Tensor, at::Tensor> spherical_harmonics_bwd(
     bool compute_v_dirs
 );
 
+// LoD frustum-sphere test: returns a [M] bool mask indicating whether each
+// sphere is inside (or touches) the 6 frustum planes.
+at::Tensor lod_sphere_in_frustum(
+    const at::Tensor &mu,      // [M, 3]
+    const at::Tensor &radius,  // [M]
+    const at::Tensor &planes   // [6, 4] world-space (a,b,c,d), unit normals
+);
+
+// LoD per-SPT binary-search cut count: given a concatenated (CSR) array of
+// entries sorted descending by size_parent, the touched SPT ids and their
+// camera distances, and a global LoD threshold T, returns the number of
+// entries (prefix) each touched SPT contributes to the cut.
+at::Tensor lod_spt_cut_count(
+    const at::Tensor &entries_size_parent, // [E]
+    const at::Tensor &offsets,             // [S+1] int64
+    const at::Tensor &touched_spt_ids,     // [K] int64
+    const at::Tensor &distances,           // [K] float
+    double T
+);
+
 // Fused Adam that supports a valid mask to skip updating certain parameters.
 // Note skipping is not equivalent with zeroing out the gradients, which will
 // still update parameters with momentum.

@@ -753,6 +753,11 @@ TORCH_LIBRARY(gsplat, m) {
     m.def("adam(Tensor(a!) param, Tensor param_grad, Tensor(b!) exp_avg, Tensor(c!) exp_avg_sq, Tensor? valid, float lr, float b1, float b2, float eps) -> ()");
 #endif
 
+#if GSPLAT_BUILD_LOD
+    m.def("lod_sphere_in_frustum(Tensor mu, Tensor radius, Tensor planes) -> Tensor");
+    m.def("lod_spt_cut_count(Tensor entries_size_parent, Tensor offsets, Tensor touched_spt_ids, Tensor distances, float T) -> Tensor");
+#endif
+
 #if GSPLAT_BUILD_RELOC
     m.def("relocation(Tensor opacities, Tensor scales, Tensor ratios, Tensor binoms, int n_max) -> (Tensor, Tensor)");
 #endif
@@ -805,6 +810,11 @@ TORCH_LIBRARY_IMPL(gsplat, CUDA, m) {
 
 #if GSPLAT_BUILD_ADAM
     m.impl("adam", &gsplat::adam);
+#endif
+
+#if GSPLAT_BUILD_LOD
+    m.impl("lod_sphere_in_frustum", &gsplat::lod_sphere_in_frustum);
+    m.impl("lod_spt_cut_count", &gsplat::lod_spt_cut_count);
 #endif
 
 #if GSPLAT_BUILD_RELOC

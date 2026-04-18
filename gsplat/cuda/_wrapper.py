@@ -339,6 +339,38 @@ def adam(
     )
 
 
+def lod_sphere_in_frustum(
+    mu: Tensor,      # [M, 3] float
+    radius: Tensor,  # [M] float
+    planes: Tensor,  # [6, 4] float (nx, ny, nz, d), unit normals
+) -> Tensor:
+    """Fused per-sphere frustum test (see `gsplat/cuda/csrc/LodCut.cpp`).
+
+    Returns a ``[M]`` bool tensor; True iff the sphere is not fully outside
+    any of the 6 planes. Requires gsplat to be built with ``GSPLAT_BUILD_LOD``
+    or default (all-modules) build. On CPU / non-CUDA devices callers should
+    use ``gsplat.lod.frustum.spheres_in_frustum`` directly.
+    """
+    return _make_lazy_cuda_func("lod_sphere_in_frustum")(mu, radius, planes)
+
+
+def lod_spt_cut_count(
+    entries_size_parent: Tensor,  # [E] float sorted desc per SPT
+    offsets: Tensor,              # [S+1] int64
+    touched_spt_ids: Tensor,      # [K] int64
+    distances: Tensor,            # [K] float
+    T: float,
+) -> Tensor:
+    """Per-SPT binary-search cut count.
+
+    Returns a ``[K]`` long tensor with the number of kept entries per touched
+    SPT. See `gsplat/cuda/csrc/LodCut.cpp`.
+    """
+    return _make_lazy_cuda_func("lod_spt_cut_count")(
+        entries_size_parent, offsets, touched_spt_ids, distances, float(T)
+    )
+
+
 def spherical_harmonics(
     degrees_to_use: int,
     dirs: Tensor,  # [..., 3]
